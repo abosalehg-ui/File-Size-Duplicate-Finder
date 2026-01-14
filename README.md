@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🔍 أداة عزل الملفات المتقاربة بالحجم
+# 🔍 أداة لعزل الملفات المتقاربة بالحجم
 ## File Size Duplicate Finder
 
 <img src="https://img.shields.io/badge/Python-3.7+-blue.svg" alt="Python">
