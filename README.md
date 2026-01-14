@@ -32,7 +32,7 @@
 
 | الواجهة الرئيسية | نتائج البحث |
 |:---:|:---:|
-| ![الشاشة الرئيسية](screenshot1.png) | ![النتائج](screenshot2.png) |
+| ![الشاشة الرئيسية](screenshots/screenshot1.png) | ![النتائج](screenshot2.png) |
 
 </div>
 
