@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icons/icon_256.png" alt="App Icon" width="160" height="160">
+
 # 🔍 أداة لعزل الملفات المتقاربة بالحجم
 ## File Size Duplicate Finder
 
