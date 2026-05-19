@@ -1483,18 +1483,28 @@ class FileSizeDuplicateFinder(QMainWindow):
         results_layout.addLayout(select_layout)
         splitter.addWidget(results_group)
         
-        # معاينة الملف
+        # معاينة الملف — معاينة نصية + thumbnail للصور جنباً إلى جنب
         preview_group = QGroupBox("معاينة الملف")
-        preview_layout = QVBoxLayout(preview_group)
-        
+        preview_layout = QHBoxLayout(preview_group)
+
+        self.preview_thumb = QLabel()
+        self.preview_thumb.setFixedSize(140, 140)
+        self.preview_thumb.setAlignment(Qt.AlignCenter)
+        self.preview_thumb.setStyleSheet(
+            "QLabel { border: 1px dashed #ccc; border-radius: 6px; "
+            "background-color: #fafafa; color: #888; }"
+        )
+        self.preview_thumb.setText("🖼️\n(معاينة)")
+        preview_layout.addWidget(self.preview_thumb)
+
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
-        self.preview_text.setMaximumHeight(120)
+        self.preview_text.setMaximumHeight(140)
         self.preview_text.setPlaceholderText("اضغط على ملف لعرض تفاصيله...")
-        preview_layout.addWidget(self.preview_text)
-        
+        preview_layout.addWidget(self.preview_text, 1)
+
         splitter.addWidget(preview_group)
-        splitter.setSizes([500, 150])
+        splitter.setSizes([500, 160])
         
         layout.addWidget(splitter, 1)
         
@@ -1733,6 +1743,27 @@ class FileSizeDuplicateFinder(QMainWindow):
 📝 آخر تعديل: {info['modified']}
 📁 المسار: {info['path']}"""
             self.preview_text.setText(preview)
+            self._update_thumbnail(info['path'], info.get('ext', ''))
+
+    def _update_thumbnail(self, path: str, ext: str):
+        """تحميل thumbnail للصور أو إظهار أيقونة الامتداد."""
+        if not hasattr(self, 'preview_thumb'):
+            return
+        image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svg'}
+        if ext.lower() in image_exts and os.path.exists(path):
+            pix = QPixmap(path)
+            if not pix.isNull():
+                scaled = pix.scaled(
+                    self.preview_thumb.width() - 4,
+                    self.preview_thumb.height() - 4,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                self.preview_thumb.setPixmap(scaled)
+                return
+        # غير صورة: عرض الامتداد كنص
+        label = ext.upper().lstrip('.') if ext else "📄"
+        self.preview_thumb.setPixmap(QPixmap())  # clear
+        self.preview_thumb.setText(f"📄\n{label or 'FILE'}")
     
     def open_file_location(self, item: QTreeWidgetItem, column: int):
         """فتح موقع الملف"""
