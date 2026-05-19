@@ -61,7 +61,7 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "أداة عزل الملفات المتقاربة بالحجم"
-APP_VERSION = "2.0"
+APP_VERSION = "3.0"
 DEVELOPER = "عبدالكريم العبود"
 EMAIL = "abo.saleh.g@gmail.com"
 COPYRIGHT = "© 2025 [File Size Duplicate Finder] - All Rights Reserved"

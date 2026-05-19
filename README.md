@@ -8,9 +8,10 @@
 <img src="https://img.shields.io/badge/Python-3.7+-blue.svg" alt="Python">
 <img src="https://img.shields.io/badge/PyQt5-5.15+-green.svg" alt="PyQt5">
 <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform">
+<img src="https://img.shields.io/badge/Version-3.0-orange.svg" alt="Version">
 <img src="https://img.shields.io/badge/License-All%20Rights%20Reserved-red.svg" alt="License">
 
-**أداة متقدمة للبحث عن الملفات المتقاربة في الحجم وعزلها في مجموعات منظمة**
+**أداة متقدمة للبحث عن الملفات المكررة وعزلها — كشف بالحجم أو بالـ Hash، بحث متداخل، واجهة بـ Drag & Drop ووضع داكن**
 
 [العربية](#العربية) | [English](#english)
 
@@ -22,11 +23,12 @@
 
 ## 📖 نظرة عامة
 
-أداة عزل الملفات المتقاربة بالحجم هي تطبيق سطح مكتب مبني بـ PyQt5 يساعدك في العثور على الملفات التي لها أحجام متقاربة وتنظيمها في مجموعات. هذا مفيد بشكل خاص لـ:
+**أداة عزل الملفات المتقاربة بالحجم** هي تطبيق سطح مكتب احترافي مبني بـ PyQt5 يساعدك على:
 
-- 🔎 اكتشاف الملفات المكررة المحتملة
-- 🧹 تنظيف المساحة التخزينية
-- 📁 تنظيم الملفات في مجموعات
+- 🔎 اكتشاف الملفات المكررة المحتملة بثلاثة أوضاع (حجم / Partial hash / SHA-256 كامل)
+- 🌳 مسح الأشجار العميقة من المجلدات الفرعية بسرعة عالية
+- 🗑️ نقل الملفات إلى سلة المحذوفات أو إلى مجلد منظّم — مع معاينة قبل التنفيذ
+- 🔄 استرداد أي عملية حتى بعد إغلاق التطبيق
 
 ## 📸 لقطات الشاشة
 
@@ -38,81 +40,168 @@
 
 </div>
 
-## ✨ المميزات
+## ✨ المميزات الكاملة
 
+### 🔍 محرّك البحث (الإصدار 3.0)
 | الميزة | الوصف |
 |--------|-------|
-| 🔍 **بحث متقدم** | البحث عن الملفات المتقاربة في الحجم بناءً على حد تقارب قابل للتعديل |
-| 📦 **عزل تلقائي** | نقل الملفات المحددة إلى مجلدات منظمة تلقائياً |
-| 🔄 **إرجاع الملفات** | إمكانية إرجاع الملفات إلى مواقعها الأصلية حتى بعد إغلاق البرنامج |
-| 📊 **إحصائيات تفصيلية** | عرض عدد الملفات، الحجم الكلي، والتوفير المحتمل |
-| 🔎 **معاينة سريعة** | عرض تفاصيل الملف (تاريخ الإنشاء، التعديل، المسار) |
-| 📁 **فتح موقع الملف** | الوصول السريع لموقع أي ملف في مستكشف الملفات |
-| 💾 **تصدير التقارير** | حفظ النتائج بصيغة TXT أو CSV |
-| 🎨 **تلوين المجموعات** | ألوان مميزة لكل مجموعة لسهولة التمييز |
-| ⚙️ **حفظ الإعدادات** | تذكر آخر مجلد والإعدادات المستخدمة |
-| 🔔 **إشعارات صوتية** | تنبيه عند انتهاء العمليات |
-| 📋 **سجل العمليات** | تتبع جميع العمليات التي تمت |
-| 📺 **دعم الشاشات عالية الدقة** | واجهة واضحة على جميع الشاشات |
-| 🏷️ **فلترة بالامتداد** | البحث في ملفات بنفس الامتداد فقط |
+| **3 أوضاع كشف** | حجم متقارب (سريع) • Partial hash (متوازن، يقرأ 128KB) • SHA-256 كامل (دقيق 100%) |
+| **بحث متداخل** | مسح المجلدات الفرعية مع تجاهل تلقائي لـ `.git` و `node_modules` و `venv` ... |
+| **خوارزمية O(n log n)** | نافذة منزلقة (sliding window) — قابلة للتعامل مع 10K+ ملف بكفاءة |
+| **Hash Cache** | تخزين مؤقت لقيم الـ hash يتجاهل تلقائياً عند تعديل الملف |
+| **فلترة بالامتداد** | البحث في ملفات بنفس الامتداد فقط |
+| **حد تقارب قابل للتعديل** | بالميجابايت (0 = تطابق دقيق، الافتراضي 3MB) |
+
+### 🛡️ ميزات الأمان
+| الميزة | الوصف |
+|--------|-------|
+| **🆕 معاينة العملية (Dry-run)** | جدول تفصيلي قبل النقل/الحذف — تأكيد إجباري |
+| **🆕 سلة المحذوفات** | إرسال الملفات إلى سلة محذوفات النظام (قابلة للاسترداد) |
+| **🆕 نسخ احتياطية دوّارة** | يحفظ آخر 10 نسخ من السجل تلقائياً في `~/.history_backup/` |
+| **🆕 تنبيه للعمليات الكبيرة** | يحذّر عند تجاوز 100 ملف أو 1GB |
+| **استرداد العمليات** | إرجاع الملفات إلى مواقعها الأصلية حتى بعد إغلاق التطبيق |
+| **معالجة تصادم الأسماء** | إعادة تسمية تلقائية عند وجود ملف بنفس الاسم في الوجهة |
+
+### 🎨 الواجهة (UX)
+| الميزة | الوصف |
+|--------|-------|
+| **🆕 السحب والإفلات** | اسحب أي مجلد على نافذة التطبيق لتعيينه كمسار البحث |
+| **🆕 الوضع الداكن** | تبديل بنقرة من شريط العنوان — يُحفظ بين الجلسات |
+| **🆕 شريط فلتر مباشر** | اكتب لتصفية النتائج فورياً (اسم/امتداد) |
+| **🆕 معاينة الصور** | thumbnail مصغّر بجانب التفاصيل النصية |
+| **تلوين المجموعات** | 15 لون مميز لتمييز المجموعات بصرياً |
+| **القائمة السياقية** | نقر يمين لفتح موقع الملف أو تحديده |
+| **شاشات عالية الدقة** | High-DPI scaling تلقائي |
+| **ثنائية اللغة** | عربي (RTL) مع نصوص إنجليزية في README |
+
+### 📤 التصدير والتقارير
+| الميزة | الوصف |
+|--------|-------|
+| **تصدير TXT** | تقرير نصي منسّق |
+| **تصدير CSV** | متوافق مع Excel/LibreOffice (UTF-8 BOM للعربية) |
+| **🆕 تصدير JSON** | عبر CLI — منظّم وقابل للاستهلاك من سكربتات |
+| **سجل العمليات** | تبويب منفصل بألوان للأخطاء والتحذيرات |
+
+### 💻 واجهة سطر الأوامر (CLI) — جديد!
+استخدم محرّك البحث من سكربتات أو مهام مجدولة دون فتح الواجهة:
+
+```bash
+# بحث أساسي
+python file_finder_cli.py --scan /path/to/folder --threshold 3
+
+# بحث متداخل بـ SHA-256 وتصدير CSV
+python file_finder_cli.py --scan /data --recursive --mode full --output report.csv
+
+# تصدير JSON بصيغة منظّمة
+python file_finder_cli.py --scan /data --recursive --mode partial \
+    --output result.json --quiet
+```
+
+| المعامل | الوصف |
+|---------|-------|
+| `--scan PATH` | (مطلوب) مسار المجلد |
+| `--threshold MB` | حد التقارب بالميجابايت (افتراضي 0) |
+| `--recursive` | بحث متداخل |
+| `--same-ext` | نفس الامتداد فقط |
+| `--mode size\|partial\|full` | وضع الكشف |
+| `--output FILE` | الصيغة من الامتداد: `.csv` / `.json` / `.txt` |
+| `--quiet` / `--verbose` | تحكم في الإخراج |
 
 ## 💻 متطلبات التشغيل
 
-- Python 3.7 أو أحدث
-- PyQt5
+- Python 3.7+
+- PyQt5 5.15+
+- send2trash (اختياري لسلة المحذوفات)
 
-## 🚀 التثبيت
+## 🚀 التثبيت والتشغيل
 
-### 1. استنساخ المشروع
 ```bash
+# 1. استنساخ المشروع
 git clone https://github.com/abosalehg-ui/File-Size-Duplicate-Finder.git
 cd File-Size-Duplicate-Finder
+
+# 2. تثبيت المتطلبات
+pip install -r requirements.txt
+
+# 3. تشغيل التطبيق
+python file_size_duplicate_finder.py
+
+# أو استخدم CLI
+python file_finder_cli.py --scan /path --recursive
 ```
 
-### 2. تثبيت المتطلبات
-```bash
-pip install PyQt5
-```
+### بناء تنفيذي مستقل (PyInstaller)
 
-### 3. تشغيل التطبيق
 ```bash
-python file_size_duplicate_finder_pyqt5.py
+pip install pyinstaller
+pyinstaller build.spec --clean
+# الناتج: dist/FileSizeDuplicateFinder(.exe)
 ```
 
 ## 📖 طريقة الاستخدام
 
-### البحث عن الملفات المتقاربة
-1. اضغط على **"استعراض"** لاختيار المجلد المراد فحصه
-2. حدد **حد التقارب** بالميجابايت (مثال: 3 ميجابايت يعني الملفات التي فرق حجمها أقل من 3 ميجابايت)
-3. اختر **"نفس الامتداد فقط"** إذا أردت البحث في ملفات من نفس النوع
-4. اضغط **"🔍 بدء البحث"**
+### البحث عن الملفات
+1. اضغط **"استعراض"** أو **اسحب مجلداً** على النافذة
+2. اضبط **حد التقارب** بالميجابايت
+3. اختر **وضع الكشف** من القائمة المنسدلة:
+   - `حجم متقارب`: مقارنة الأحجام فقط (الأسرع)
+   - `Partial hash`: نفس الحجم + بصمة بداية/نهاية (متوازن)
+   - `تكرار حقيقي SHA-256`: تطابق المحتوى الكامل (الأدق)
+4. فعّل **"المجلدات الفرعية"** للبحث المتداخل (اختياري)
+5. اضغط **"🔍 بدء البحث"**
 
-### عزل الملفات
-1. حدد الملفات التي تريد عزلها بالنقر على مربع التحديد ☐
-2. أو استخدم **"☑ تحديد الكل"**
-3. اضغط **"📦 عزل المحدد"**
-4. سيتم نقل الملفات إلى مجلد `duplicates_sorted` داخل المجلد المحدد
+### عزل أو حذف الملفات
+1. حدّد الملفات بالنقر على ☐
+2. اختر إحدى العمليتين:
+   - **📦 عزل المحدد**: نقل إلى `duplicates_sorted/folder_N`
+   - **🗑️ سلة المحذوفات**: إرسال إلى سلة النظام (قابلة للاسترداد)
+3. **راجع نافذة المعاينة** التي تعرض كل ملف سيتأثر
+4. اضغط **"✅ تأكيد"** أو **"❌ إلغاء"**
 
-### إرجاع الملفات
-1. اضغط **"🔄 إرجاع الملفات"**
-2. اختر العملية التي تريد التراجع عنها
-3. اضغط **"إرجاع"** لإعادة الملفات لمواقعها الأصلية
+### استرداد الملفات
+- اضغط **"🔄 إرجاع الملفات"** → اختر العملية → **"إرجاع"**
+- نسخ احتياطية للسجل تُحفظ في `~/.history_backup/` (آخر 10)
 
 ## 📁 هيكل المشروع
 
 ```
 File-Size-Duplicate-Finder/
-├── file_size_duplicate_finder_pyqt5.py    # الملف الرئيسي
-├── README.md                               # هذا الملف
-├── screenshot1.png                         # لقطة شاشة 1
-└── screenshot2.png                         # لقطة شاشة 2
+├── file_size_duplicate_finder.py    # التطبيق الرئيسي (GUI)
+├── file_finder_cli.py               # واجهة سطر الأوامر
+├── build.spec                       # PyInstaller config
+├── requirements.txt                 # تبعيات التشغيل
+├── requirements-dev.txt             # تبعيات التطوير
+├── README.md
+├── assets/
+│   ├── icon.svg                     # المصدر vector
+│   ├── icon.ico / icon.png          # أيقونات للتطبيق
+│   └── icons/                       # أحجام متعددة (16 → 1024)
+└── screenshots/
 ```
 
 ## 📄 ملفات البيانات
 
-يقوم التطبيق بإنشاء الملفات التالية في مجلد المستخدم:
-- `file_finder_history.json` - سجل عمليات النقل والإرجاع
-- إعدادات التطبيق تُحفظ في سجل النظام (QSettings)
+- `~/file_finder_history.json` — سجل عمليات النقل (مع نسخ احتياطية في `~/.history_backup/`)
+- `~/.file_finder_hash_cache.json` — تخزين مؤقت لقيم الـ hash
+- `QSettings` — الإعدادات (آخر مجلد، الحد، الوضع الداكن، إلخ)
+
+## 🛣️ خارطة الطريق
+
+تم تنفيذه ✅:
+- المرحلة 3: كشف التكرار الحقيقي بالـ Hashing (Partial + Full)
+- المرحلة 4: البحث المتداخل + خوارزمية O(n log n)
+- المرحلة 5: ميزات الأمان (Dry-run, send2trash, backups)
+- المرحلة 6: تحسينات الواجهة (Drag-drop, Dark mode, فلتر, معاينة صور)
+- المرحلة 7: واجهة سطر الأوامر (CLI)
+- المرحلة 8: PyInstaller spec للتوزيع
+
+قيد التخطيط:
+- المرحلة 1: إعادة هيكلة الكود إلى حزمة Python (refactor)
+- المرحلة 2: نظام ترجمة كامل (i18n) مع تبديل اللغة من القائمة
+- إحصائيات مرئية (رسوم بيانية لتوزيع الأحجام)
+- مقارنة بين مجلدين
+- استرداد متعدد (Batch undo)
+- GitHub Actions CI لبناء الـ executables تلقائياً
 
 ---
 
@@ -120,55 +209,62 @@ File-Size-Duplicate-Finder/
 
 ## 📖 Overview
 
-File Size Duplicate Finder is a desktop application built with PyQt5 that helps you find files with similar sizes and organize them into groups. This is particularly useful for:
+**File Size Duplicate Finder** (v3.0) is a professional PyQt5 desktop app for finding and isolating duplicate files. Features three detection modes (size / partial hash / full SHA-256), recursive scanning, drag-and-drop, dark mode, recycle-bin integration, and a standalone CLI.
 
-- 🔎 Detecting potential duplicate files
-- 🧹 Cleaning up storage space
-- 📁 Organizing files into groups
+## ✨ Key Features
 
-## ✨ Features
+### Search Engine
+- 🔍 **Three detection modes**: size threshold • partial hash (head+tail MD5) • full SHA-256
+- 🌳 **Recursive scanning** with auto-exclusion of `.git`, `node_modules`, etc.
+- ⚡ **O(n log n) sliding-window** grouping algorithm
+- 💾 **Hash cache** invalidates automatically on file mtime/size change
 
-- 🔍 **Advanced Search** - Find files with similar sizes based on adjustable threshold
-- 📦 **Auto Organization** - Move selected files to organized folders automatically
-- 🔄 **File Restore** - Restore files to original locations even after closing the app
-- 📊 **Detailed Statistics** - View file count, total size, and potential savings
-- 🔎 **Quick Preview** - Display file details (creation date, modification, path)
-- 📁 **Open File Location** - Quick access to any file location in file explorer
-- 💾 **Export Reports** - Save results as TXT or CSV
-- 🎨 **Color-coded Groups** - Distinct colors for each group
-- ⚙️ **Save Settings** - Remember last folder and settings
-- 🔔 **Sound Notifications** - Alert when operations complete
-- 📋 **Operation Log** - Track all operations
-- 📺 **High DPI Support** - Clear interface on all screens
-- 🏷️ **Extension Filter** - Search only files with same extension
+### Safety
+- 👁️ **Dry-run preview** dialog before every move/delete
+- 🗑️ **Recycle bin** integration via `send2trash` (recoverable deletions)
+- 💾 **Rolling history backups** (last 10) in `~/.history_backup/`
+- ⚠️ **Large-operation warnings** (>100 files or >1GB)
+- 🔄 **Operation restore** — even after closing the app
+
+### UX
+- 🎨 **Dark mode** with persisted preference
+- 📥 **Drag & drop** folder onto window
+- 🔎 **Live filter bar** for instant result filtering
+- 🖼️ **Image thumbnails** in preview panel
+- 🌈 **Color-coded groups** (15 distinct colors)
+- 📺 **High-DPI** scaling
+
+### Reports & CLI
+- 📤 Export to **TXT / CSV / JSON**
+- 💻 **Standalone CLI** (no PyQt5 needed):
+  ```bash
+  python file_finder_cli.py --scan /data --recursive --mode full --output report.csv
+  ```
 
 ## 💻 Requirements
 
 - Python 3.7+
-- PyQt5
+- PyQt5 5.15+
+- send2trash (optional)
 
 ## 🚀 Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/abosalehg-ui/File-Size-Duplicate-Finder.git
 cd File-Size-Duplicate-Finder
-
-# Install dependencies
-pip install PyQt5
-
-# Run the application
-python file_size_duplicate_finder_pyqt5.py
+pip install -r requirements.txt
+python file_size_duplicate_finder.py
 ```
 
 ## 📖 Usage
 
-1. Click **"Browse"** to select the folder to scan
-2. Set the **size threshold** in MB
-3. Optionally check **"Same extension only"**
-4. Click **"🔍 Start Search"**
-5. Select files to isolate
-6. Click **"📦 Isolate Selected"**
+1. Click **Browse** or **drag a folder** onto the window
+2. Adjust **size threshold** (MB)
+3. Choose **detection mode** (size / partial / full)
+4. Enable **Subdirectories** if needed
+5. Click **🔍 Start Search**
+6. Select files → **📦 Isolate** or **🗑️ Trash**
+7. Review preview dialog → **✅ Confirm**
 
 ---
 
