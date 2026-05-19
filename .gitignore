@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# تطبيق المستخدم
+*.bak
+.history_backup/
+.file_finder_hash_cache.json
+file_finder_history.json
+
+# بيئات Python
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# نظام التشغيل
+.DS_Store
+Thumbs.db

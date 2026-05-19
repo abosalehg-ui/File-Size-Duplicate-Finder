@@ -48,13 +48,20 @@ try:
 except ImportError:
     SOUND_AVAILABLE = False
 
+# محاولة استيراد مكتبة سلة المحذوفات
+try:
+    from send2trash import send2trash
+    TRASH_AVAILABLE = True
+except ImportError:
+    TRASH_AVAILABLE = False
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # الثوابت والإعدادات
 # ═══════════════════════════════════════════════════════════════════════════════
 
 APP_NAME = "أداة عزل الملفات المتقاربة بالحجم"
-APP_VERSION = "2.0"
+APP_VERSION = "3.0"
 DEVELOPER = "عبدالكريم العبود"
 EMAIL = "abo.saleh.g@gmail.com"
 COPYRIGHT = "© 2025 [File Size Duplicate Finder] - All Rights Reserved"
@@ -69,6 +76,126 @@ GROUP_COLORS = [
     "#FBE9E7", "#F1F8E9", "#EDE7F6", "#E1F5FE", "#FFF8E1",
     "#E8EAF6", "#FCE4EC", "#E0F2F1", "#EFEBE9", "#ECEFF1"
 ]
+
+# عتبات تأكيد العمليات الكبيرة
+LARGE_OP_FILE_COUNT = 100
+LARGE_OP_SIZE_BYTES = 1024 * 1024 * 1024  # 1 GB
+
+# مجلدات يُفترض استثناؤها أثناء المسح المتداخل
+DEFAULT_EXCLUDE_DIRS = {
+    ".git", ".svn", ".hg", "__pycache__", "node_modules",
+    ".venv", "venv", "env", ".env", "duplicates_sorted",
+    ".history_backup", ".file_finder_cache"
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# أدوات مساعدة عامة
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# أوضاع كشف التكرار
+DETECT_MODE_SIZE = "size"            # حجم متقارب فقط (الوضع الأصلي)
+DETECT_MODE_PARTIAL_HASH = "partial" # نفس الحجم + partial hash (سريع، دقيق)
+DETECT_MODE_FULL_HASH = "full"       # تكرار حقيقي 100% (full hash)
+
+HASH_CACHE_FILE = ".file_finder_hash_cache.json"
+PARTIAL_HASH_CHUNK = 64 * 1024       # 64KB من بداية ونهاية الملف
+
+
+def format_bytes(size: int) -> str:
+    """تحويل الحجم بالبايت إلى صيغة قابلة للقراءة."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024.0 or unit == "TB":
+            return f"{size:.2f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} TB"
+
+
+def compute_partial_hash(path: str, chunk_size: int = PARTIAL_HASH_CHUNK) -> Optional[str]:
+    """حساب hash جزئي من أول وآخر chunk_size بايت — سريع جداً."""
+    try:
+        size = os.path.getsize(path)
+        h = hashlib.md5()
+        with open(path, 'rb') as f:
+            # البداية
+            h.update(f.read(chunk_size))
+            # النهاية (إذا كان الملف أكبر من 2×chunk)
+            if size > 2 * chunk_size:
+                f.seek(-chunk_size, os.SEEK_END)
+                h.update(f.read(chunk_size))
+        # ضمّ الحجم للـ hash لتمييز الملفات ذات البدايات/النهايات المتطابقة
+        h.update(str(size).encode())
+        return h.hexdigest()
+    except (OSError, PermissionError):
+        return None
+
+
+def compute_full_hash(path: str, chunk_size: int = 1024 * 1024) -> Optional[str]:
+    """حساب SHA-256 الكامل عبر streaming لتجنب تحميل ملفات ضخمة في الذاكرة."""
+    try:
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(chunk_size), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except (OSError, PermissionError):
+        return None
+
+
+class HashCache:
+    """تخزين مؤقت لقيم الـ hash مع مفتاح (path, mtime, size) لتجنب إعادة الحساب."""
+
+    def __init__(self, cache_dir: Optional[str] = None):
+        self.cache_dir = cache_dir or os.path.expanduser("~")
+        self.path = os.path.join(self.cache_dir, HASH_CACHE_FILE)
+        self.data: Dict[str, dict] = self._load()
+
+    def _load(self) -> Dict[str, dict]:
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {}
+
+    def save(self):
+        try:
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f)
+        except OSError:
+            pass
+
+    def _is_fresh(self, entry: dict, mtime: float, size: int) -> bool:
+        return entry.get('mtime') == mtime and entry.get('size') == size
+
+    def get_partial(self, path: str, mtime: float, size: int) -> Optional[str]:
+        entry = self.data.get(path)
+        if entry and self._is_fresh(entry, mtime, size):
+            return entry.get('partial')
+        return None
+
+    def get_full(self, path: str, mtime: float, size: int) -> Optional[str]:
+        entry = self.data.get(path)
+        if entry and self._is_fresh(entry, mtime, size):
+            return entry.get('full')
+        return None
+
+    def set_partial(self, path: str, mtime: float, size: int, value: str):
+        entry = self.data.setdefault(path, {})
+        if not self._is_fresh(entry, mtime, size):
+            entry.clear()
+        entry['mtime'] = mtime
+        entry['size'] = size
+        entry['partial'] = value
+
+    def set_full(self, path: str, mtime: float, size: int, value: str):
+        entry = self.data.setdefault(path, {})
+        if not self._is_fresh(entry, mtime, size):
+            entry.clear()
+        entry['mtime'] = mtime
+        entry['size'] = size
+        entry['full'] = value
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -105,110 +232,231 @@ class OperationBatch:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class FileSearchThread(QThread):
-    """خيط منفصل للبحث عن الملفات المتقاربة"""
+    """خيط منفصل للبحث عن الملفات المتقاربة.
+
+    يدعم البحث المتداخل في المجلدات الفرعية، خوارزمية تجميع بنافذة
+    منزلقة O(n log n)، واستثناء المجلدات النظامية.
+    """
     progress = pyqtSignal(int, str)
     finished_search = pyqtSignal(list)
     error = pyqtSignal(str)
-    
-    def __init__(self, folder_path: str, threshold_mb: float, same_ext_only: bool):
+
+    def __init__(
+        self,
+        folder_path: str,
+        threshold_mb: float,
+        same_ext_only: bool,
+        recursive: bool = False,
+        exclude_dirs: Optional[set] = None,
+        detect_mode: str = DETECT_MODE_SIZE,
+    ):
         super().__init__()
         self.folder_path = folder_path
         self.threshold_mb = threshold_mb
         self.same_ext_only = same_ext_only
+        self.recursive = recursive
+        self.exclude_dirs = exclude_dirs if exclude_dirs is not None else DEFAULT_EXCLUDE_DIRS
+        self.detect_mode = detect_mode
         self.is_running = True
-    
+
     def stop(self):
         self.is_running = False
-    
+
+    def _iter_files(self):
+        """مولّد لقراءة الملفات (مسطح أو متداخل) باستخدام os.scandir."""
+        if self.recursive:
+            stack = [self.folder_path]
+            while stack and self.is_running:
+                current = stack.pop()
+                try:
+                    with os.scandir(current) as it:
+                        for entry in it:
+                            if not self.is_running:
+                                return
+                            try:
+                                if entry.is_dir(follow_symlinks=False):
+                                    if entry.name not in self.exclude_dirs:
+                                        stack.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    yield entry
+                            except OSError:
+                                continue
+                except (PermissionError, OSError):
+                    continue
+        else:
+            try:
+                with os.scandir(self.folder_path) as it:
+                    for entry in it:
+                        if not self.is_running:
+                            return
+                        try:
+                            if entry.is_file(follow_symlinks=False):
+                                yield entry
+                        except OSError:
+                            continue
+            except (PermissionError, OSError):
+                return
+
     def run(self):
         try:
             self.progress.emit(0, "جاري جمع معلومات الملفات...")
             files_info = []
-            
-            # جمع معلومات الملفات
-            items = os.listdir(self.folder_path)
-            total_items = len(items)
-            
-            for idx, item in enumerate(items):
+            count = 0
+            last_emit = 0
+
+            for entry in self._iter_files():
                 if not self.is_running:
                     return
-                
-                item_path = os.path.join(self.folder_path, item)
-                if os.path.isfile(item_path):
-                    try:
-                        stat = os.stat(item_path)
-                        size = stat.st_size
-                        ext = os.path.splitext(item)[1].lower()
-                        created = datetime.fromtimestamp(stat.st_ctime)
-                        modified = datetime.fromtimestamp(stat.st_mtime)
-                        
-                        files_info.append({
-                            'path': item_path,
-                            'name': item,
-                            'size': size,
-                            'ext': ext,
-                            'created': created.strftime("%Y-%m-%d %H:%M"),
-                            'modified': modified.strftime("%Y-%m-%d %H:%M")
-                        })
-                    except (OSError, PermissionError):
-                        continue
-                
-                progress = int((idx + 1) / total_items * 50)
-                self.progress.emit(progress, f"جاري فحص الملفات... ({idx + 1}/{total_items})")
-            
+                try:
+                    stat = entry.stat(follow_symlinks=False)
+                    size = stat.st_size
+                    ext = os.path.splitext(entry.name)[1].lower()
+                    files_info.append({
+                        'path': entry.path,
+                        'name': entry.name,
+                        'size': size,
+                        'ext': ext,
+                        'created': datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M"),
+                        'modified': datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                    })
+                except (OSError, PermissionError):
+                    continue
+
+                count += 1
+                # إرسال إشارة تقدم كل 200 ملف لتجنب إغراق الواجهة
+                if count - last_emit >= 200:
+                    self.progress.emit(
+                        min(45, count // 50),
+                        f"جاري فحص الملفات... ({count} ملف)"
+                    )
+                    last_emit = count
+
             if not self.is_running:
                 return
-            
-            self.progress.emit(50, "جاري تحليل التقارب في الأحجام...")
-            
-            # ترتيب حسب الحجم
-            files_info.sort(key=lambda x: x['size'])
-            
-            # إيجاد المجموعات المتقاربة
-            threshold_bytes = self.threshold_mb * 1024 * 1024
-            groups = []
-            used_indices = set()
-            
-            total_files = len(files_info)
-            
-            for i, file1 in enumerate(files_info):
-                if not self.is_running:
-                    return
-                
-                if i in used_indices:
-                    continue
-                
-                current_group = [file1]
-                used_indices.add(i)
-                
-                for j, file2 in enumerate(files_info[i+1:], start=i+1):
-                    if j in used_indices:
-                        continue
-                    
-                    size_diff = abs(file2['size'] - file1['size'])
-                    
-                    if size_diff <= threshold_bytes:
-                        if self.same_ext_only:
-                            if file1['ext'] == file2['ext']:
-                                current_group.append(file2)
-                                used_indices.add(j)
-                        else:
-                            current_group.append(file2)
-                            used_indices.add(j)
-                    else:
-                        break
-                
-                if len(current_group) > 1:
-                    groups.append(current_group)
-                
-                progress = 50 + int((i + 1) / total_files * 50)
-                self.progress.emit(progress, f"جاري تحليل المجموعات... ({len(groups)} مجموعة)")
-            
+
+            self.progress.emit(50, f"جاري تحليل {len(files_info)} ملف بخوارزمية النافذة المنزلقة...")
+
+            groups = self._group_with_sliding_window(files_info)
+
+            # تنقية المجموعات بالـ hash إذا كان مطلوباً
+            if self.detect_mode in (DETECT_MODE_PARTIAL_HASH, DETECT_MODE_FULL_HASH) and groups:
+                groups = self._refine_by_hash(groups)
+
             self.progress.emit(100, f"اكتمل البحث - {len(groups)} مجموعة")
             self.finished_search.emit(groups)
-            
+
         except Exception as e:
             self.error.emit(str(e))
+
+    def _refine_by_hash(self, groups: List[List[Dict]]) -> List[List[Dict]]:
+        """تنقية المجموعات: حساب hash لكل ملف وإعادة التجميع حسب التطابق الفعلي."""
+        cache = HashCache()
+        total_files = sum(len(g) for g in groups)
+        processed = 0
+        refined: List[List[Dict]] = []
+        use_full = self.detect_mode == DETECT_MODE_FULL_HASH
+        label = "SHA-256 كامل" if use_full else "Partial hash"
+
+        for group in groups:
+            if not self.is_running:
+                cache.save()
+                return refined
+
+            # الخطوة الأولى: partial hash لتقسيم المجموعة سريعاً
+            buckets_partial: Dict[str, List[Dict]] = {}
+            for f in group:
+                if not self.is_running:
+                    cache.save()
+                    return refined
+                try:
+                    stat = os.stat(f['path'])
+                    mtime, size = stat.st_mtime, stat.st_size
+                except OSError:
+                    processed += 1
+                    continue
+                ph = cache.get_partial(f['path'], mtime, size)
+                if ph is None:
+                    ph = compute_partial_hash(f['path'])
+                    if ph:
+                        cache.set_partial(f['path'], mtime, size, ph)
+                if ph:
+                    buckets_partial.setdefault(ph, []).append(f)
+                processed += 1
+                pct = 50 + int(processed / max(total_files, 1) * 50)
+                self.progress.emit(pct, f"حساب {label}... ({processed}/{total_files})")
+
+            for bucket in buckets_partial.values():
+                if len(bucket) < 2:
+                    continue
+                if not use_full:
+                    refined.append(bucket)
+                    continue
+
+                # الخطوة الثانية: full hash للمطابقات في partial
+                buckets_full: Dict[str, List[Dict]] = {}
+                for f in bucket:
+                    if not self.is_running:
+                        cache.save()
+                        return refined
+                    try:
+                        stat = os.stat(f['path'])
+                        mtime, size = stat.st_mtime, stat.st_size
+                    except OSError:
+                        continue
+                    fh = cache.get_full(f['path'], mtime, size)
+                    if fh is None:
+                        fh = compute_full_hash(f['path'])
+                        if fh:
+                            cache.set_full(f['path'], mtime, size, fh)
+                    if fh:
+                        buckets_full.setdefault(fh, []).append(f)
+                for sub in buckets_full.values():
+                    if len(sub) > 1:
+                        refined.append(sub)
+
+        cache.save()
+        return refined
+
+    def _group_with_sliding_window(self, files_info: List[Dict]) -> List[List[Dict]]:
+        """تجميع الملفات المتقاربة بالحجم باستخدام نافذة منزلقة O(n log n).
+
+        خوارزمية: بعد فرز الملفات بالحجم، نمسح كل ملف مرة واحدة ونضمّه
+        إلى المجموعة الحالية إذا كان الفرق ≤ threshold عن أول ملف في المجموعة.
+        """
+        if not files_info:
+            return []
+
+        threshold_bytes = int(self.threshold_mb * 1024 * 1024)
+        files_info.sort(key=lambda x: x['size'])
+
+        groups: List[List[Dict]] = []
+        current: List[Dict] = [files_info[0]]
+        anchor_size = files_info[0]['size']
+
+        for f in files_info[1:]:
+            if not self.is_running:
+                return groups
+            if f['size'] - anchor_size <= threshold_bytes:
+                current.append(f)
+            else:
+                if len(current) > 1:
+                    groups.extend(self._split_by_extension(current))
+                current = [f]
+                anchor_size = f['size']
+
+        if len(current) > 1:
+            groups.extend(self._split_by_extension(current))
+
+        return groups
+
+    def _split_by_extension(self, group: List[Dict]) -> List[List[Dict]]:
+        """عند تفعيل خيار "نفس الامتداد فقط"، نفصل المجموعة حسب الامتداد."""
+        if not self.same_ext_only:
+            return [group]
+        by_ext: Dict[str, List[Dict]] = {}
+        for f in group:
+            by_ext.setdefault(f['ext'], []).append(f)
+        return [files for files in by_ext.values() if len(files) > 1]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -510,6 +758,151 @@ class HistoryDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# نافذة المعاينة (Dry-run)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class DryRunDialog(QDialog):
+    """نافذة معاينة العملية قبل التنفيذ — تعرض جدولاً تفصيلياً للملفات."""
+
+    def __init__(self, selected_groups: List[List[Dict]], action_label: str, parent=None):
+        super().__init__(parent)
+        self.selected_groups = selected_groups
+        self.confirmed = False
+        self.setWindowTitle(f"📋 معاينة العملية — {action_label}")
+        self.setMinimumSize(820, 540)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self._build_ui(action_label)
+
+    def _build_ui(self, action_label: str):
+        layout = QVBoxLayout(self)
+
+        total_files = sum(len(g) for g in self.selected_groups)
+        total_size = sum(f['size'] for g in self.selected_groups for f in g)
+
+        # ملخص في الأعلى
+        summary = QLabel(
+            f"<div style='font-size:14px; padding:10px;'>"
+            f"🔹 <b>الإجراء:</b> {action_label}<br>"
+            f"🔹 <b>عدد المجموعات:</b> {len(self.selected_groups)}<br>"
+            f"🔹 <b>إجمالي الملفات:</b> {total_files}<br>"
+            f"🔹 <b>الحجم الكلي:</b> {format_bytes(total_size)}"
+            f"</div>"
+        )
+        summary.setStyleSheet(
+            "background-color:#E3F2FD; border-radius:8px; border:1px solid #90CAF9;"
+        )
+        layout.addWidget(summary)
+
+        # تحذير للعمليات الكبيرة
+        if total_files >= LARGE_OP_FILE_COUNT or total_size >= LARGE_OP_SIZE_BYTES:
+            warn = QLabel(
+                "⚠️ <b>تنبيه:</b> هذه عملية كبيرة — يُنصح بمراجعة القائمة بعناية قبل المتابعة."
+            )
+            warn.setStyleSheet(
+                "color:#BF360C; background-color:#FFF3E0; padding:8px; "
+                "border-radius:6px; border:1px solid #FFAB91;"
+            )
+            layout.addWidget(warn)
+
+        # جدول الملفات
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["الاسم", "الحجم", "الامتداد", "المسار"])
+        tree.setAlternatingRowColors(True)
+        for idx, group in enumerate(self.selected_groups, 1):
+            grp_item = QTreeWidgetItem([
+                f"📁 المجموعة {idx} ({len(group)} ملف)",
+                format_bytes(sum(f['size'] for f in group)),
+                "", ""
+            ])
+            for f in group:
+                child = QTreeWidgetItem([
+                    f['name'],
+                    format_bytes(f['size']),
+                    f.get('ext', ''),
+                    f['path'],
+                ])
+                grp_item.addChild(child)
+            grp_item.setExpanded(False)
+            tree.addTopLevelItem(grp_item)
+        tree.resizeColumnToContents(0)
+        layout.addWidget(tree, 1)
+
+        # أزرار
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("❌ إلغاء")
+        cancel_btn.clicked.connect(self.reject)
+        confirm_btn = QPushButton(f"✅ تأكيد — {action_label}")
+        confirm_btn.setStyleSheet(
+            "QPushButton { background-color:#2E7D32; color:white; "
+            "padding:8px 18px; border-radius:6px; font-weight:bold; }"
+            "QPushButton:hover { background-color:#1B5E20; }"
+        )
+        confirm_btn.clicked.connect(self._on_confirm)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(confirm_btn)
+        layout.addLayout(btn_row)
+
+    def _on_confirm(self):
+        self.confirmed = True
+        self.accept()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# خيط الحذف إلى سلة المحذوفات
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class FileTrashThread(QThread):
+    """خيط منفصل لإرسال الملفات إلى سلة المحذوفات."""
+    progress = pyqtSignal(int, str)
+    finished_trash = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, selected_files: List[List[Dict]]):
+        super().__init__()
+        self.selected_files = selected_files
+        self.is_running = True
+
+    def stop(self):
+        self.is_running = False
+
+    def run(self):
+        if not TRASH_AVAILABLE:
+            self.error.emit("مكتبة send2trash غير متوفرة")
+            return
+        try:
+            total = sum(len(g) for g in self.selected_files)
+            trashed = 0
+            failed = []
+            total_size = 0
+            done = 0
+
+            for group in self.selected_files:
+                for finfo in group:
+                    if not self.is_running:
+                        return
+                    done += 1
+                    path = finfo['path']
+                    try:
+                        size = os.path.getsize(path) if os.path.exists(path) else 0
+                        send2trash(path)
+                        trashed += 1
+                        total_size += size
+                    except Exception as e:
+                        failed.append(f"{finfo['name']} ({e})")
+                    pct = int(done / total * 100) if total else 100
+                    self.progress.emit(pct, f"إرسال إلى السلة... ({done}/{total})")
+
+            self.finished_trash.emit({
+                'trashed_count': trashed,
+                'total_size': total_size,
+                'failed': failed,
+            })
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # النافذة الرئيسية
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -518,16 +911,21 @@ class FileSizeDuplicateFinder(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        
+
         # المتغيرات
         self.similar_groups = []
         self.file_paths = {}
         self.search_thread = None
         self.move_thread = None
         self.restore_thread = None
+        self.trash_thread = None
         self.history = []
         self.settings = QSettings("FileSizeDuplicateFinder", "Settings")
-        
+        self.dark_mode = self.settings.value("dark_mode", False, type=bool)
+
+        # تفعيل قبول السحب والإفلات للمجلدات
+        self.setAcceptDrops(True)
+
         # تحميل السجل
         self.load_history()
         
@@ -536,7 +934,29 @@ class FileSizeDuplicateFinder(QMainWindow):
         
         # تحميل الإعدادات
         self.load_settings()
-    
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Drag & Drop — قبول إفلات مجلد على النافذة لتعيينه كمسار البحث
+    # ─────────────────────────────────────────────────────────────────────
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and os.path.isdir(url.toLocalFile()):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                path = url.toLocalFile()
+                if os.path.isdir(path):
+                    self.folder_input.setText(path)
+                    self.log_message(f"📂 تم تعيين المجلد عبر السحب: {path}")
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
     def init_ui(self):
         """تهيئة واجهة المستخدم"""
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
@@ -601,7 +1021,10 @@ class FileSizeDuplicateFinder(QMainWindow):
         main_layout.addWidget(copyright_label)
     
     def apply_style(self):
-        """تطبيق النمط العام"""
+        """تطبيق النمط العام (فاتح/داكن)."""
+        if self.dark_mode:
+            self._apply_dark_style()
+            return
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #f5f6fa;
@@ -695,7 +1118,110 @@ class FileSizeDuplicateFinder(QMainWindow):
                 background-color: #fafafa;
             }
         """)
-    
+
+    def _apply_dark_style(self):
+        """نمط داكن — ألوان مريحة للعين في الإضاءة المنخفضة."""
+        self.setStyleSheet("""
+            QMainWindow, QDialog { background-color: #1e1e2e; color: #cdd6f4; }
+            QWidget { color: #cdd6f4; }
+            QGroupBox {
+                font-weight: bold; font-size: 13px;
+                border: 2px solid #5c6bc0; border-radius: 8px;
+                margin-top: 10px; padding-top: 10px;
+                background-color: #2a2a3e;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin; subcontrol-position: top right;
+                padding: 5px 15px; background-color: #5c6bc0;
+                color: white; border-radius: 5px;
+            }
+            QPushButton {
+                background-color: #5c6bc0; color: white; border: none;
+                padding: 10px 20px; border-radius: 5px;
+                font-weight: bold; font-size: 12px;
+            }
+            QPushButton:hover { background-color: #7986cb; }
+            QPushButton:pressed { background-color: #3949ab; }
+            QPushButton:disabled { background-color: #4a4a5e; color: #8a8a9e; }
+            QLineEdit, QDoubleSpinBox, QComboBox {
+                padding: 8px; border: 2px solid #44475a; border-radius: 5px;
+                background-color: #2a2a3e; color: #cdd6f4; font-size: 12px;
+            }
+            QLineEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                border-color: #5c6bc0;
+            }
+            QTreeWidget {
+                border: 2px solid #44475a; border-radius: 5px;
+                background-color: #2a2a3e; color: #cdd6f4; font-size: 12px;
+                alternate-background-color: #313244;
+            }
+            QTreeWidget::item { padding: 5px; border-bottom: 1px solid #44475a; }
+            QTreeWidget::item:selected { background-color: #5c6bc0; color: white; }
+            QHeaderView::section {
+                background-color: #5c6bc0; color: white;
+                padding: 8px; border: none; font-weight: bold;
+            }
+            QProgressBar {
+                border: 2px solid #44475a; border-radius: 5px;
+                text-align: center; font-weight: bold;
+                background-color: #313244; color: #cdd6f4;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #66bb6a, stop:1 #43a047);
+                border-radius: 3px;
+            }
+            QCheckBox { font-size: 12px; spacing: 8px; color: #cdd6f4; }
+            QTextEdit {
+                border: 2px solid #44475a; border-radius: 5px;
+                background-color: #1e1e2e; color: #cdd6f4;
+            }
+            QTabWidget::pane { border: 2px solid #44475a; background-color: #2a2a3e; }
+            QTabBar::tab {
+                background: #313244; color: #cdd6f4;
+                padding: 8px 16px; border-radius: 4px;
+            }
+            QTabBar::tab:selected { background: #5c6bc0; color: white; }
+            QLabel { color: #cdd6f4; }
+            QMenu { background-color: #2a2a3e; color: #cdd6f4; border: 1px solid #44475a; }
+            QMenu::item:selected { background-color: #5c6bc0; }
+        """)
+
+    def toggle_dark_mode(self):
+        """تبديل بين الوضع الفاتح والداكن."""
+        self.dark_mode = not self.dark_mode
+        self.settings.setValue("dark_mode", self.dark_mode)
+        self.apply_style()
+        label = "🌙 الوضع الداكن" if not self.dark_mode else "☀️ الوضع الفاتح"
+        if hasattr(self, 'dark_mode_btn'):
+            self.dark_mode_btn.setText(label)
+        self.log_message(f"تم التبديل إلى {label}")
+
+    def apply_results_filter(self, text: str):
+        """تصفية الصفوف في شجرة النتائج بناءً على النص المُدخل."""
+        text = (text or "").strip().lower()
+        if not hasattr(self, 'results_tree'):
+            return
+        root = self.results_tree.invisibleRootItem()
+        visible_groups = 0
+        for i in range(root.childCount()):
+            group_item = root.child(i)
+            any_visible = False
+            for j in range(group_item.childCount()):
+                child = group_item.child(j)
+                if not text:
+                    child.setHidden(False)
+                    any_visible = True
+                else:
+                    name = child.text(2).lower()
+                    ext = child.text(4).lower()
+                    match = text in name or text in ext
+                    child.setHidden(not match)
+                    any_visible = any_visible or match
+            group_item.setHidden(not any_visible if text else False)
+            if any_visible or not text:
+                visible_groups += 1
+
     def create_title_frame(self):
         """إنشاء إطار العنوان"""
         frame = QFrame()
@@ -707,18 +1233,34 @@ class FileSizeDuplicateFinder(QMainWindow):
                 padding: 15px;
             }
         """)
-        layout = QVBoxLayout(frame)
-        
+        outer = QHBoxLayout(frame)
+
+        # عمود النصوص (العنوان والوصف)
+        text_col = QVBoxLayout()
         title = QLabel(f"🔍 {APP_NAME}")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: white; font-size: 24px; font-weight: bold;")
-        layout.addWidget(title)
-        
+        text_col.addWidget(title)
+
         subtitle = QLabel("ابحث عن الملفات المتقاربة في الحجم وقم بعزلها في مجموعات منظمة")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet("color: #ecf0f1; font-size: 13px;")
-        layout.addWidget(subtitle)
-        
+        text_col.addWidget(subtitle)
+
+        outer.addLayout(text_col, 1)
+
+        # زر تبديل الوضع الداكن
+        self.dark_mode_btn = QToolButton()
+        self.dark_mode_btn.setText("☀️ الوضع الفاتح" if self.dark_mode else "🌙 الوضع الداكن")
+        self.dark_mode_btn.setToolTip("تبديل بين الوضع الفاتح والداكن")
+        self.dark_mode_btn.setStyleSheet(
+            "QToolButton { background-color: rgba(255,255,255,0.18); color: white; "
+            "padding: 8px 14px; border-radius: 6px; font-weight: bold; }"
+            "QToolButton:hover { background-color: rgba(255,255,255,0.3); }"
+        )
+        self.dark_mode_btn.clicked.connect(self.toggle_dark_mode)
+        outer.addWidget(self.dark_mode_btn, 0, Qt.AlignTop)
+
         return frame
     
     def create_search_tab(self):
@@ -760,7 +1302,29 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.same_ext_check = QCheckBox("🏷️ نفس الامتداد فقط")
         self.same_ext_check.setToolTip("البحث فقط في الملفات التي لها نفس الامتداد")
         options_layout.addWidget(self.same_ext_check)
-        
+
+        options_layout.addSpacing(15)
+
+        self.recursive_check = QCheckBox("🌳 المجلدات الفرعية")
+        self.recursive_check.setToolTip(
+            "البحث المتداخل في كل المجلدات الفرعية (يتجاهل المجلدات النظامية مثل .git و node_modules)"
+        )
+        options_layout.addWidget(self.recursive_check)
+
+        options_layout.addSpacing(15)
+
+        options_layout.addWidget(QLabel("🔍 وضع الكشف:"))
+        self.detect_mode_combo = QComboBox()
+        self.detect_mode_combo.addItem("حجم متقارب (سريع)", DETECT_MODE_SIZE)
+        self.detect_mode_combo.addItem("Partial hash (متوازن)", DETECT_MODE_PARTIAL_HASH)
+        self.detect_mode_combo.addItem("تكرار حقيقي SHA-256 (دقيق)", DETECT_MODE_FULL_HASH)
+        self.detect_mode_combo.setToolTip(
+            "حجم متقارب: مقارنة الأحجام فقط.\n"
+            "Partial hash: نفس الحجم + توقيع من بداية ونهاية الملف.\n"
+            "تكرار حقيقي: SHA-256 كامل — أبطأ لكن مضمون."
+        )
+        options_layout.addWidget(self.detect_mode_combo)
+
         options_layout.addStretch()
         settings_layout.addLayout(options_layout)
         
@@ -796,22 +1360,37 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.move_btn = QPushButton("📦 عزل المحدد")
         self.move_btn.clicked.connect(self.move_files)
         self.move_btn.setEnabled(False)
+        self.move_btn.setToolTip("عرض معاينة قبل النقل إلى مجلد منظم")
         self.move_btn.setStyleSheet("""
             QPushButton { background-color: #27ae60; }
             QPushButton:hover { background-color: #1e8449; }
             QPushButton:disabled { background-color: #bdc3c7; }
         """)
-        
+
+        self.trash_btn = QPushButton("🗑️ سلة المحذوفات")
+        self.trash_btn.clicked.connect(self.move_to_trash)
+        self.trash_btn.setEnabled(False)
+        if not TRASH_AVAILABLE:
+            self.trash_btn.setToolTip("غير متوفر — ثبّت send2trash")
+        else:
+            self.trash_btn.setToolTip("إرسال الملفات المحددة إلى سلة محذوفات النظام (قابلة للاسترداد)")
+        self.trash_btn.setStyleSheet("""
+            QPushButton { background-color: #c0392b; }
+            QPushButton:hover { background-color: #962d22; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """)
+
         self.restore_btn = QPushButton("🔄 إرجاع الملفات")
         self.restore_btn.clicked.connect(self.show_history_dialog)
         self.restore_btn.setStyleSheet("""
             QPushButton { background-color: #f39c12; }
             QPushButton:hover { background-color: #d68910; }
         """)
-        
+
         control_layout.addWidget(self.search_btn)
         control_layout.addWidget(self.stop_btn)
         control_layout.addWidget(self.move_btn)
+        control_layout.addWidget(self.trash_btn)
         control_layout.addStretch()
         control_layout.addWidget(self.restore_btn)
         
@@ -834,7 +1413,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         # جدول النتائج
         results_group = QGroupBox("النتائج")
         results_layout = QVBoxLayout(results_group)
-        
+
         # إحصائيات
         self.stats_label = QLabel("📊 لم يتم البحث بعد")
         self.stats_label.setStyleSheet("""
@@ -845,7 +1424,23 @@ class FileSizeDuplicateFinder(QMainWindow):
             color: #2c3e50;
         """)
         results_layout.addWidget(self.stats_label)
-        
+
+        # شريط فلتر مباشر لتصفية النتائج
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("🔎 فلترة:"))
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText(
+            "اكتب جزءاً من اسم الملف أو الامتداد لتصفية المجموعات فوراً..."
+        )
+        self.filter_input.textChanged.connect(self.apply_results_filter)
+        filter_row.addWidget(self.filter_input, 1)
+        clear_filter_btn = QToolButton()
+        clear_filter_btn.setText("✕")
+        clear_filter_btn.setToolTip("مسح الفلتر")
+        clear_filter_btn.clicked.connect(lambda: self.filter_input.clear())
+        filter_row.addWidget(clear_filter_btn)
+        results_layout.addLayout(filter_row)
+
         # شجرة النتائج
         self.results_tree = QTreeWidget()
         self.results_tree.setHeaderLabels(["", "المجموعة", "اسم الملف", "الحجم", "الامتداد"])
@@ -888,18 +1483,28 @@ class FileSizeDuplicateFinder(QMainWindow):
         results_layout.addLayout(select_layout)
         splitter.addWidget(results_group)
         
-        # معاينة الملف
+        # معاينة الملف — معاينة نصية + thumbnail للصور جنباً إلى جنب
         preview_group = QGroupBox("معاينة الملف")
-        preview_layout = QVBoxLayout(preview_group)
-        
+        preview_layout = QHBoxLayout(preview_group)
+
+        self.preview_thumb = QLabel()
+        self.preview_thumb.setFixedSize(140, 140)
+        self.preview_thumb.setAlignment(Qt.AlignCenter)
+        self.preview_thumb.setStyleSheet(
+            "QLabel { border: 1px dashed #ccc; border-radius: 6px; "
+            "background-color: #fafafa; color: #888; }"
+        )
+        self.preview_thumb.setText("🖼️\n(معاينة)")
+        preview_layout.addWidget(self.preview_thumb)
+
         self.preview_text = QTextEdit()
         self.preview_text.setReadOnly(True)
-        self.preview_text.setMaximumHeight(120)
+        self.preview_text.setMaximumHeight(140)
         self.preview_text.setPlaceholderText("اضغط على ملف لعرض تفاصيله...")
-        preview_layout.addWidget(self.preview_text)
-        
+        preview_layout.addWidget(self.preview_text, 1)
+
         splitter.addWidget(preview_group)
-        splitter.setSizes([500, 150])
+        splitter.setSizes([500, 160])
         
         layout.addWidget(splitter, 1)
         
@@ -997,7 +1602,9 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.search_thread = FileSearchThread(
             folder,
             self.threshold_spin.value(),
-            self.same_ext_check.isChecked()
+            self.same_ext_check.isChecked(),
+            recursive=self.recursive_check.isChecked(),
+            detect_mode=self.detect_mode_combo.currentData() or DETECT_MODE_SIZE,
         )
         self.search_thread.progress.connect(self.on_search_progress)
         self.search_thread.finished_search.connect(self.on_search_finished)
@@ -1027,7 +1634,10 @@ class FileSizeDuplicateFinder(QMainWindow):
         
         self.search_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        self.move_btn.setEnabled(len(groups) > 0)
+        has_groups = len(groups) > 0
+        self.move_btn.setEnabled(has_groups)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(has_groups and TRASH_AVAILABLE)
         
         # تشغيل صوت الإشعار
         self.play_notification()
@@ -1133,6 +1743,27 @@ class FileSizeDuplicateFinder(QMainWindow):
 📝 آخر تعديل: {info['modified']}
 📁 المسار: {info['path']}"""
             self.preview_text.setText(preview)
+            self._update_thumbnail(info['path'], info.get('ext', ''))
+
+    def _update_thumbnail(self, path: str, ext: str):
+        """تحميل thumbnail للصور أو إظهار أيقونة الامتداد."""
+        if not hasattr(self, 'preview_thumb'):
+            return
+        image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svg'}
+        if ext.lower() in image_exts and os.path.exists(path):
+            pix = QPixmap(path)
+            if not pix.isNull():
+                scaled = pix.scaled(
+                    self.preview_thumb.width() - 4,
+                    self.preview_thumb.height() - 4,
+                    Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                self.preview_thumb.setPixmap(scaled)
+                return
+        # غير صورة: عرض الامتداد كنص
+        label = ext.upper().lstrip('.') if ext else "📄"
+        self.preview_thumb.setPixmap(QPixmap())  # clear
+        self.preview_thumb.setText(f"📄\n{label or 'FILE'}")
     
     def open_file_location(self, item: QTreeWidgetItem, column: int):
         """فتح موقع الملف"""
@@ -1204,32 +1835,32 @@ class FileSizeDuplicateFinder(QMainWindow):
         return selected_groups
     
     def move_files(self):
-        """نقل الملفات"""
+        """نقل الملفات بعد عرض نافذة المعاينة (Dry-run)."""
         selected = self.get_selected_files()
-        
+
         if not selected:
             QMessageBox.warning(self, "تنبيه", "الرجاء تحديد الملفات المراد عزلها")
             return
-        
-        total_files = sum(len(g) for g in selected)
-        reply = QMessageBox.question(
-            self, "تأكيد العزل",
-            f"سيتم نقل {total_files} ملف في {len(selected)} مجموعة.\nهل تريد المتابعة؟",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        
-        if reply != QMessageBox.Yes:
+
+        # عرض نافذة المعاينة قبل التنفيذ
+        dlg = DryRunDialog(selected, "عزل إلى مجلدات", self)
+        dlg.exec_()
+        if not dlg.confirmed:
+            self.log_message("تم إلغاء العملية من نافذة المعاينة")
             return
-        
+
+        total_files = sum(len(g) for g in selected)
         operation_id = hashlib.md5(
             f"{datetime.now().isoformat()}_{total_files}".encode()
         ).hexdigest()[:12]
-        
+
         self.move_btn.setEnabled(False)
         self.search_btn.setEnabled(False)
-        
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(False)
+
         self.log_message(f"بدء عملية النقل - {total_files} ملف...")
-        
+
         self.move_thread = FileMoveThread(
             selected,
             self.folder_input.text(),
@@ -1239,6 +1870,67 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.move_thread.finished_move.connect(self.on_move_finished)
         self.move_thread.error.connect(self.on_move_error)
         self.move_thread.start()
+
+    def move_to_trash(self):
+        """إرسال الملفات المحددة إلى سلة محذوفات النظام."""
+        if not TRASH_AVAILABLE:
+            QMessageBox.critical(
+                self, "غير متوفر",
+                "مكتبة send2trash غير مثبتة.\nنفّذ: pip install send2trash"
+            )
+            return
+
+        selected = self.get_selected_files()
+        if not selected:
+            QMessageBox.warning(self, "تنبيه", "الرجاء تحديد الملفات أولاً")
+            return
+
+        dlg = DryRunDialog(selected, "إرسال إلى سلة المحذوفات", self)
+        dlg.exec_()
+        if not dlg.confirmed:
+            self.log_message("تم إلغاء عملية الحذف من نافذة المعاينة")
+            return
+
+        total_files = sum(len(g) for g in selected)
+        self.log_message(f"بدء إرسال {total_files} ملف إلى سلة المحذوفات...")
+
+        self.move_btn.setEnabled(False)
+        self.search_btn.setEnabled(False)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(False)
+
+        self.trash_thread = FileTrashThread(selected)
+        self.trash_thread.progress.connect(self.on_search_progress)
+        self.trash_thread.finished_trash.connect(self.on_trash_finished)
+        self.trash_thread.error.connect(self.on_move_error)
+        self.trash_thread.start()
+
+    def on_trash_finished(self, result: dict):
+        """انتهاء عملية الإرسال إلى السلة."""
+        self.move_btn.setEnabled(True)
+        self.search_btn.setEnabled(True)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(True)
+
+        count = result['trashed_count']
+        size = result['total_size']
+        failed = result.get('failed', [])
+
+        self.log_message(
+            f"✅ تم إرسال {count} ملف إلى السلة (حجم إجمالي: {format_bytes(size)})",
+            "SUCCESS"
+        )
+        if failed:
+            self.log_message(f"⚠️ فشل في {len(failed)} ملف", "WARNING")
+
+        QMessageBox.information(
+            self, "اكتملت العملية",
+            f"تم إرسال {count} ملف إلى سلة المحذوفات.\n"
+            f"يمكنك استرداد الملفات من سلة محذوفات النظام."
+        )
+        # إعادة البحث لتحديث القائمة
+        if self.folder_input.text():
+            self.start_search()
     
     def on_move_finished(self, result: dict):
         """انتهاء النقل"""
@@ -1265,9 +1957,11 @@ class FileSizeDuplicateFinder(QMainWindow):
         
         self.play_notification()
         self.log_message(f"اكتمل النقل - {result['moved_count']} ملف", "SUCCESS")
-        
+
         self.move_btn.setEnabled(True)
         self.search_btn.setEnabled(True)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(TRASH_AVAILABLE)
         
         # إعادة البحث
         self.start_search()
@@ -1426,13 +2120,39 @@ class FileSizeDuplicateFinder(QMainWindow):
             self.history = []
     
     def save_history(self):
-        """حفظ سجل العمليات"""
+        """حفظ سجل العمليات مع نسخة احتياطية دوّارة."""
         try:
-            history_path = os.path.join(os.path.expanduser("~"), HISTORY_FILE)
+            home = os.path.expanduser("~")
+            history_path = os.path.join(home, HISTORY_FILE)
+
+            # نسخة احتياطية للسجل الحالي قبل الكتابة
+            if os.path.exists(history_path):
+                backup_dir = os.path.join(home, ".history_backup")
+                os.makedirs(backup_dir, exist_ok=True)
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = os.path.join(backup_dir, f"history_{ts}.json")
+                try:
+                    shutil.copy2(history_path, backup_path)
+                except (OSError, PermissionError):
+                    pass
+                # الاحتفاظ بآخر 10 نسخ فقط
+                try:
+                    backups = sorted(
+                        f for f in os.listdir(backup_dir)
+                        if f.startswith("history_") and f.endswith(".json")
+                    )
+                    for old in backups[:-10]:
+                        try:
+                            os.remove(os.path.join(backup_dir, old))
+                        except OSError:
+                            pass
+                except OSError:
+                    pass
+
             with open(history_path, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            pass
+        except (OSError, PermissionError, TypeError) as e:
+            self.log_message(f"تعذر حفظ السجل: {e}", "WARNING")
     
     def load_settings(self):
         """تحميل الإعدادات"""
