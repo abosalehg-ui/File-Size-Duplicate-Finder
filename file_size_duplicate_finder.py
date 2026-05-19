@@ -48,6 +48,13 @@ try:
 except ImportError:
     SOUND_AVAILABLE = False
 
+# محاولة استيراد مكتبة سلة المحذوفات
+try:
+    from send2trash import send2trash
+    TRASH_AVAILABLE = True
+except ImportError:
+    TRASH_AVAILABLE = False
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # الثوابت والإعدادات
@@ -69,6 +76,30 @@ GROUP_COLORS = [
     "#FBE9E7", "#F1F8E9", "#EDE7F6", "#E1F5FE", "#FFF8E1",
     "#E8EAF6", "#FCE4EC", "#E0F2F1", "#EFEBE9", "#ECEFF1"
 ]
+
+# عتبات تأكيد العمليات الكبيرة
+LARGE_OP_FILE_COUNT = 100
+LARGE_OP_SIZE_BYTES = 1024 * 1024 * 1024  # 1 GB
+
+# مجلدات يُفترض استثناؤها أثناء المسح المتداخل
+DEFAULT_EXCLUDE_DIRS = {
+    ".git", ".svn", ".hg", "__pycache__", "node_modules",
+    ".venv", "venv", "env", ".env", "duplicates_sorted",
+    ".history_backup", ".file_finder_cache"
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# أدوات مساعدة عامة
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def format_bytes(size: int) -> str:
+    """تحويل الحجم بالبايت إلى صيغة قابلة للقراءة."""
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024.0 or unit == "TB":
+            return f"{size:.2f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} TB"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -510,6 +541,151 @@ class HistoryDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# نافذة المعاينة (Dry-run)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class DryRunDialog(QDialog):
+    """نافذة معاينة العملية قبل التنفيذ — تعرض جدولاً تفصيلياً للملفات."""
+
+    def __init__(self, selected_groups: List[List[Dict]], action_label: str, parent=None):
+        super().__init__(parent)
+        self.selected_groups = selected_groups
+        self.confirmed = False
+        self.setWindowTitle(f"📋 معاينة العملية — {action_label}")
+        self.setMinimumSize(820, 540)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self._build_ui(action_label)
+
+    def _build_ui(self, action_label: str):
+        layout = QVBoxLayout(self)
+
+        total_files = sum(len(g) for g in self.selected_groups)
+        total_size = sum(f['size'] for g in self.selected_groups for f in g)
+
+        # ملخص في الأعلى
+        summary = QLabel(
+            f"<div style='font-size:14px; padding:10px;'>"
+            f"🔹 <b>الإجراء:</b> {action_label}<br>"
+            f"🔹 <b>عدد المجموعات:</b> {len(self.selected_groups)}<br>"
+            f"🔹 <b>إجمالي الملفات:</b> {total_files}<br>"
+            f"🔹 <b>الحجم الكلي:</b> {format_bytes(total_size)}"
+            f"</div>"
+        )
+        summary.setStyleSheet(
+            "background-color:#E3F2FD; border-radius:8px; border:1px solid #90CAF9;"
+        )
+        layout.addWidget(summary)
+
+        # تحذير للعمليات الكبيرة
+        if total_files >= LARGE_OP_FILE_COUNT or total_size >= LARGE_OP_SIZE_BYTES:
+            warn = QLabel(
+                "⚠️ <b>تنبيه:</b> هذه عملية كبيرة — يُنصح بمراجعة القائمة بعناية قبل المتابعة."
+            )
+            warn.setStyleSheet(
+                "color:#BF360C; background-color:#FFF3E0; padding:8px; "
+                "border-radius:6px; border:1px solid #FFAB91;"
+            )
+            layout.addWidget(warn)
+
+        # جدول الملفات
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["الاسم", "الحجم", "الامتداد", "المسار"])
+        tree.setAlternatingRowColors(True)
+        for idx, group in enumerate(self.selected_groups, 1):
+            grp_item = QTreeWidgetItem([
+                f"📁 المجموعة {idx} ({len(group)} ملف)",
+                format_bytes(sum(f['size'] for f in group)),
+                "", ""
+            ])
+            for f in group:
+                child = QTreeWidgetItem([
+                    f['name'],
+                    format_bytes(f['size']),
+                    f.get('ext', ''),
+                    f['path'],
+                ])
+                grp_item.addChild(child)
+            grp_item.setExpanded(False)
+            tree.addTopLevelItem(grp_item)
+        tree.resizeColumnToContents(0)
+        layout.addWidget(tree, 1)
+
+        # أزرار
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("❌ إلغاء")
+        cancel_btn.clicked.connect(self.reject)
+        confirm_btn = QPushButton(f"✅ تأكيد — {action_label}")
+        confirm_btn.setStyleSheet(
+            "QPushButton { background-color:#2E7D32; color:white; "
+            "padding:8px 18px; border-radius:6px; font-weight:bold; }"
+            "QPushButton:hover { background-color:#1B5E20; }"
+        )
+        confirm_btn.clicked.connect(self._on_confirm)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(confirm_btn)
+        layout.addLayout(btn_row)
+
+    def _on_confirm(self):
+        self.confirmed = True
+        self.accept()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# خيط الحذف إلى سلة المحذوفات
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class FileTrashThread(QThread):
+    """خيط منفصل لإرسال الملفات إلى سلة المحذوفات."""
+    progress = pyqtSignal(int, str)
+    finished_trash = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, selected_files: List[List[Dict]]):
+        super().__init__()
+        self.selected_files = selected_files
+        self.is_running = True
+
+    def stop(self):
+        self.is_running = False
+
+    def run(self):
+        if not TRASH_AVAILABLE:
+            self.error.emit("مكتبة send2trash غير متوفرة")
+            return
+        try:
+            total = sum(len(g) for g in self.selected_files)
+            trashed = 0
+            failed = []
+            total_size = 0
+            done = 0
+
+            for group in self.selected_files:
+                for finfo in group:
+                    if not self.is_running:
+                        return
+                    done += 1
+                    path = finfo['path']
+                    try:
+                        size = os.path.getsize(path) if os.path.exists(path) else 0
+                        send2trash(path)
+                        trashed += 1
+                        total_size += size
+                    except Exception as e:
+                        failed.append(f"{finfo['name']} ({e})")
+                    pct = int(done / total * 100) if total else 100
+                    self.progress.emit(pct, f"إرسال إلى السلة... ({done}/{total})")
+
+            self.finished_trash.emit({
+                'trashed_count': trashed,
+                'total_size': total_size,
+                'failed': failed,
+            })
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # النافذة الرئيسية
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -796,22 +972,37 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.move_btn = QPushButton("📦 عزل المحدد")
         self.move_btn.clicked.connect(self.move_files)
         self.move_btn.setEnabled(False)
+        self.move_btn.setToolTip("عرض معاينة قبل النقل إلى مجلد منظم")
         self.move_btn.setStyleSheet("""
             QPushButton { background-color: #27ae60; }
             QPushButton:hover { background-color: #1e8449; }
             QPushButton:disabled { background-color: #bdc3c7; }
         """)
-        
+
+        self.trash_btn = QPushButton("🗑️ سلة المحذوفات")
+        self.trash_btn.clicked.connect(self.move_to_trash)
+        self.trash_btn.setEnabled(False)
+        if not TRASH_AVAILABLE:
+            self.trash_btn.setToolTip("غير متوفر — ثبّت send2trash")
+        else:
+            self.trash_btn.setToolTip("إرسال الملفات المحددة إلى سلة محذوفات النظام (قابلة للاسترداد)")
+        self.trash_btn.setStyleSheet("""
+            QPushButton { background-color: #c0392b; }
+            QPushButton:hover { background-color: #962d22; }
+            QPushButton:disabled { background-color: #bdc3c7; }
+        """)
+
         self.restore_btn = QPushButton("🔄 إرجاع الملفات")
         self.restore_btn.clicked.connect(self.show_history_dialog)
         self.restore_btn.setStyleSheet("""
             QPushButton { background-color: #f39c12; }
             QPushButton:hover { background-color: #d68910; }
         """)
-        
+
         control_layout.addWidget(self.search_btn)
         control_layout.addWidget(self.stop_btn)
         control_layout.addWidget(self.move_btn)
+        control_layout.addWidget(self.trash_btn)
         control_layout.addStretch()
         control_layout.addWidget(self.restore_btn)
         
@@ -1027,7 +1218,10 @@ class FileSizeDuplicateFinder(QMainWindow):
         
         self.search_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
-        self.move_btn.setEnabled(len(groups) > 0)
+        has_groups = len(groups) > 0
+        self.move_btn.setEnabled(has_groups)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(has_groups and TRASH_AVAILABLE)
         
         # تشغيل صوت الإشعار
         self.play_notification()
@@ -1204,32 +1398,32 @@ class FileSizeDuplicateFinder(QMainWindow):
         return selected_groups
     
     def move_files(self):
-        """نقل الملفات"""
+        """نقل الملفات بعد عرض نافذة المعاينة (Dry-run)."""
         selected = self.get_selected_files()
-        
+
         if not selected:
             QMessageBox.warning(self, "تنبيه", "الرجاء تحديد الملفات المراد عزلها")
             return
-        
-        total_files = sum(len(g) for g in selected)
-        reply = QMessageBox.question(
-            self, "تأكيد العزل",
-            f"سيتم نقل {total_files} ملف في {len(selected)} مجموعة.\nهل تريد المتابعة؟",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        
-        if reply != QMessageBox.Yes:
+
+        # عرض نافذة المعاينة قبل التنفيذ
+        dlg = DryRunDialog(selected, "عزل إلى مجلدات", self)
+        dlg.exec_()
+        if not dlg.confirmed:
+            self.log_message("تم إلغاء العملية من نافذة المعاينة")
             return
-        
+
+        total_files = sum(len(g) for g in selected)
         operation_id = hashlib.md5(
             f"{datetime.now().isoformat()}_{total_files}".encode()
         ).hexdigest()[:12]
-        
+
         self.move_btn.setEnabled(False)
         self.search_btn.setEnabled(False)
-        
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(False)
+
         self.log_message(f"بدء عملية النقل - {total_files} ملف...")
-        
+
         self.move_thread = FileMoveThread(
             selected,
             self.folder_input.text(),
@@ -1239,6 +1433,67 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.move_thread.finished_move.connect(self.on_move_finished)
         self.move_thread.error.connect(self.on_move_error)
         self.move_thread.start()
+
+    def move_to_trash(self):
+        """إرسال الملفات المحددة إلى سلة محذوفات النظام."""
+        if not TRASH_AVAILABLE:
+            QMessageBox.critical(
+                self, "غير متوفر",
+                "مكتبة send2trash غير مثبتة.\nنفّذ: pip install send2trash"
+            )
+            return
+
+        selected = self.get_selected_files()
+        if not selected:
+            QMessageBox.warning(self, "تنبيه", "الرجاء تحديد الملفات أولاً")
+            return
+
+        dlg = DryRunDialog(selected, "إرسال إلى سلة المحذوفات", self)
+        dlg.exec_()
+        if not dlg.confirmed:
+            self.log_message("تم إلغاء عملية الحذف من نافذة المعاينة")
+            return
+
+        total_files = sum(len(g) for g in selected)
+        self.log_message(f"بدء إرسال {total_files} ملف إلى سلة المحذوفات...")
+
+        self.move_btn.setEnabled(False)
+        self.search_btn.setEnabled(False)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(False)
+
+        self.trash_thread = FileTrashThread(selected)
+        self.trash_thread.progress.connect(self.on_search_progress)
+        self.trash_thread.finished_trash.connect(self.on_trash_finished)
+        self.trash_thread.error.connect(self.on_move_error)
+        self.trash_thread.start()
+
+    def on_trash_finished(self, result: dict):
+        """انتهاء عملية الإرسال إلى السلة."""
+        self.move_btn.setEnabled(True)
+        self.search_btn.setEnabled(True)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(True)
+
+        count = result['trashed_count']
+        size = result['total_size']
+        failed = result.get('failed', [])
+
+        self.log_message(
+            f"✅ تم إرسال {count} ملف إلى السلة (حجم إجمالي: {format_bytes(size)})",
+            "SUCCESS"
+        )
+        if failed:
+            self.log_message(f"⚠️ فشل في {len(failed)} ملف", "WARNING")
+
+        QMessageBox.information(
+            self, "اكتملت العملية",
+            f"تم إرسال {count} ملف إلى سلة المحذوفات.\n"
+            f"يمكنك استرداد الملفات من سلة محذوفات النظام."
+        )
+        # إعادة البحث لتحديث القائمة
+        if self.folder_input.text():
+            self.start_search()
     
     def on_move_finished(self, result: dict):
         """انتهاء النقل"""
@@ -1265,9 +1520,11 @@ class FileSizeDuplicateFinder(QMainWindow):
         
         self.play_notification()
         self.log_message(f"اكتمل النقل - {result['moved_count']} ملف", "SUCCESS")
-        
+
         self.move_btn.setEnabled(True)
         self.search_btn.setEnabled(True)
+        if hasattr(self, 'trash_btn'):
+            self.trash_btn.setEnabled(TRASH_AVAILABLE)
         
         # إعادة البحث
         self.start_search()
@@ -1426,13 +1683,39 @@ class FileSizeDuplicateFinder(QMainWindow):
             self.history = []
     
     def save_history(self):
-        """حفظ سجل العمليات"""
+        """حفظ سجل العمليات مع نسخة احتياطية دوّارة."""
         try:
-            history_path = os.path.join(os.path.expanduser("~"), HISTORY_FILE)
+            home = os.path.expanduser("~")
+            history_path = os.path.join(home, HISTORY_FILE)
+
+            # نسخة احتياطية للسجل الحالي قبل الكتابة
+            if os.path.exists(history_path):
+                backup_dir = os.path.join(home, ".history_backup")
+                os.makedirs(backup_dir, exist_ok=True)
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = os.path.join(backup_dir, f"history_{ts}.json")
+                try:
+                    shutil.copy2(history_path, backup_path)
+                except (OSError, PermissionError):
+                    pass
+                # الاحتفاظ بآخر 10 نسخ فقط
+                try:
+                    backups = sorted(
+                        f for f in os.listdir(backup_dir)
+                        if f.startswith("history_") and f.endswith(".json")
+                    )
+                    for old in backups[:-10]:
+                        try:
+                            os.remove(os.path.join(backup_dir, old))
+                        except OSError:
+                            pass
+                except OSError:
+                    pass
+
             with open(history_path, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            pass
+        except (OSError, PermissionError, TypeError) as e:
+            self.log_message(f"تعذر حفظ السجل: {e}", "WARNING")
     
     def load_settings(self):
         """تحميل الإعدادات"""
