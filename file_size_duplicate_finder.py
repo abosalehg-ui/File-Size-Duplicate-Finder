@@ -911,16 +911,21 @@ class FileSizeDuplicateFinder(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        
+
         # المتغيرات
         self.similar_groups = []
         self.file_paths = {}
         self.search_thread = None
         self.move_thread = None
         self.restore_thread = None
+        self.trash_thread = None
         self.history = []
         self.settings = QSettings("FileSizeDuplicateFinder", "Settings")
-        
+        self.dark_mode = self.settings.value("dark_mode", False, type=bool)
+
+        # تفعيل قبول السحب والإفلات للمجلدات
+        self.setAcceptDrops(True)
+
         # تحميل السجل
         self.load_history()
         
@@ -929,7 +934,29 @@ class FileSizeDuplicateFinder(QMainWindow):
         
         # تحميل الإعدادات
         self.load_settings()
-    
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Drag & Drop — قبول إفلات مجلد على النافذة لتعيينه كمسار البحث
+    # ─────────────────────────────────────────────────────────────────────
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and os.path.isdir(url.toLocalFile()):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                path = url.toLocalFile()
+                if os.path.isdir(path):
+                    self.folder_input.setText(path)
+                    self.log_message(f"📂 تم تعيين المجلد عبر السحب: {path}")
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
     def init_ui(self):
         """تهيئة واجهة المستخدم"""
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
@@ -994,7 +1021,10 @@ class FileSizeDuplicateFinder(QMainWindow):
         main_layout.addWidget(copyright_label)
     
     def apply_style(self):
-        """تطبيق النمط العام"""
+        """تطبيق النمط العام (فاتح/داكن)."""
+        if self.dark_mode:
+            self._apply_dark_style()
+            return
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #f5f6fa;
@@ -1088,7 +1118,110 @@ class FileSizeDuplicateFinder(QMainWindow):
                 background-color: #fafafa;
             }
         """)
-    
+
+    def _apply_dark_style(self):
+        """نمط داكن — ألوان مريحة للعين في الإضاءة المنخفضة."""
+        self.setStyleSheet("""
+            QMainWindow, QDialog { background-color: #1e1e2e; color: #cdd6f4; }
+            QWidget { color: #cdd6f4; }
+            QGroupBox {
+                font-weight: bold; font-size: 13px;
+                border: 2px solid #5c6bc0; border-radius: 8px;
+                margin-top: 10px; padding-top: 10px;
+                background-color: #2a2a3e;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin; subcontrol-position: top right;
+                padding: 5px 15px; background-color: #5c6bc0;
+                color: white; border-radius: 5px;
+            }
+            QPushButton {
+                background-color: #5c6bc0; color: white; border: none;
+                padding: 10px 20px; border-radius: 5px;
+                font-weight: bold; font-size: 12px;
+            }
+            QPushButton:hover { background-color: #7986cb; }
+            QPushButton:pressed { background-color: #3949ab; }
+            QPushButton:disabled { background-color: #4a4a5e; color: #8a8a9e; }
+            QLineEdit, QDoubleSpinBox, QComboBox {
+                padding: 8px; border: 2px solid #44475a; border-radius: 5px;
+                background-color: #2a2a3e; color: #cdd6f4; font-size: 12px;
+            }
+            QLineEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                border-color: #5c6bc0;
+            }
+            QTreeWidget {
+                border: 2px solid #44475a; border-radius: 5px;
+                background-color: #2a2a3e; color: #cdd6f4; font-size: 12px;
+                alternate-background-color: #313244;
+            }
+            QTreeWidget::item { padding: 5px; border-bottom: 1px solid #44475a; }
+            QTreeWidget::item:selected { background-color: #5c6bc0; color: white; }
+            QHeaderView::section {
+                background-color: #5c6bc0; color: white;
+                padding: 8px; border: none; font-weight: bold;
+            }
+            QProgressBar {
+                border: 2px solid #44475a; border-radius: 5px;
+                text-align: center; font-weight: bold;
+                background-color: #313244; color: #cdd6f4;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #66bb6a, stop:1 #43a047);
+                border-radius: 3px;
+            }
+            QCheckBox { font-size: 12px; spacing: 8px; color: #cdd6f4; }
+            QTextEdit {
+                border: 2px solid #44475a; border-radius: 5px;
+                background-color: #1e1e2e; color: #cdd6f4;
+            }
+            QTabWidget::pane { border: 2px solid #44475a; background-color: #2a2a3e; }
+            QTabBar::tab {
+                background: #313244; color: #cdd6f4;
+                padding: 8px 16px; border-radius: 4px;
+            }
+            QTabBar::tab:selected { background: #5c6bc0; color: white; }
+            QLabel { color: #cdd6f4; }
+            QMenu { background-color: #2a2a3e; color: #cdd6f4; border: 1px solid #44475a; }
+            QMenu::item:selected { background-color: #5c6bc0; }
+        """)
+
+    def toggle_dark_mode(self):
+        """تبديل بين الوضع الفاتح والداكن."""
+        self.dark_mode = not self.dark_mode
+        self.settings.setValue("dark_mode", self.dark_mode)
+        self.apply_style()
+        label = "🌙 الوضع الداكن" if not self.dark_mode else "☀️ الوضع الفاتح"
+        if hasattr(self, 'dark_mode_btn'):
+            self.dark_mode_btn.setText(label)
+        self.log_message(f"تم التبديل إلى {label}")
+
+    def apply_results_filter(self, text: str):
+        """تصفية الصفوف في شجرة النتائج بناءً على النص المُدخل."""
+        text = (text or "").strip().lower()
+        if not hasattr(self, 'results_tree'):
+            return
+        root = self.results_tree.invisibleRootItem()
+        visible_groups = 0
+        for i in range(root.childCount()):
+            group_item = root.child(i)
+            any_visible = False
+            for j in range(group_item.childCount()):
+                child = group_item.child(j)
+                if not text:
+                    child.setHidden(False)
+                    any_visible = True
+                else:
+                    name = child.text(2).lower()
+                    ext = child.text(4).lower()
+                    match = text in name or text in ext
+                    child.setHidden(not match)
+                    any_visible = any_visible or match
+            group_item.setHidden(not any_visible if text else False)
+            if any_visible or not text:
+                visible_groups += 1
+
     def create_title_frame(self):
         """إنشاء إطار العنوان"""
         frame = QFrame()
@@ -1100,18 +1233,34 @@ class FileSizeDuplicateFinder(QMainWindow):
                 padding: 15px;
             }
         """)
-        layout = QVBoxLayout(frame)
-        
+        outer = QHBoxLayout(frame)
+
+        # عمود النصوص (العنوان والوصف)
+        text_col = QVBoxLayout()
         title = QLabel(f"🔍 {APP_NAME}")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: white; font-size: 24px; font-weight: bold;")
-        layout.addWidget(title)
-        
+        text_col.addWidget(title)
+
         subtitle = QLabel("ابحث عن الملفات المتقاربة في الحجم وقم بعزلها في مجموعات منظمة")
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet("color: #ecf0f1; font-size: 13px;")
-        layout.addWidget(subtitle)
-        
+        text_col.addWidget(subtitle)
+
+        outer.addLayout(text_col, 1)
+
+        # زر تبديل الوضع الداكن
+        self.dark_mode_btn = QToolButton()
+        self.dark_mode_btn.setText("☀️ الوضع الفاتح" if self.dark_mode else "🌙 الوضع الداكن")
+        self.dark_mode_btn.setToolTip("تبديل بين الوضع الفاتح والداكن")
+        self.dark_mode_btn.setStyleSheet(
+            "QToolButton { background-color: rgba(255,255,255,0.18); color: white; "
+            "padding: 8px 14px; border-radius: 6px; font-weight: bold; }"
+            "QToolButton:hover { background-color: rgba(255,255,255,0.3); }"
+        )
+        self.dark_mode_btn.clicked.connect(self.toggle_dark_mode)
+        outer.addWidget(self.dark_mode_btn, 0, Qt.AlignTop)
+
         return frame
     
     def create_search_tab(self):
@@ -1264,7 +1413,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         # جدول النتائج
         results_group = QGroupBox("النتائج")
         results_layout = QVBoxLayout(results_group)
-        
+
         # إحصائيات
         self.stats_label = QLabel("📊 لم يتم البحث بعد")
         self.stats_label.setStyleSheet("""
@@ -1275,7 +1424,23 @@ class FileSizeDuplicateFinder(QMainWindow):
             color: #2c3e50;
         """)
         results_layout.addWidget(self.stats_label)
-        
+
+        # شريط فلتر مباشر لتصفية النتائج
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("🔎 فلترة:"))
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText(
+            "اكتب جزءاً من اسم الملف أو الامتداد لتصفية المجموعات فوراً..."
+        )
+        self.filter_input.textChanged.connect(self.apply_results_filter)
+        filter_row.addWidget(self.filter_input, 1)
+        clear_filter_btn = QToolButton()
+        clear_filter_btn.setText("✕")
+        clear_filter_btn.setToolTip("مسح الفلتر")
+        clear_filter_btn.clicked.connect(lambda: self.filter_input.clear())
+        filter_row.addWidget(clear_filter_btn)
+        results_layout.addLayout(filter_row)
+
         # شجرة النتائج
         self.results_tree = QTreeWidget()
         self.results_tree.setHeaderLabels(["", "المجموعة", "اسم الملف", "الحجم", "الامتداد"])
