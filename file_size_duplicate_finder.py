@@ -540,6 +540,7 @@ class FileSizeDuplicateFinder(QMainWindow):
     def init_ui(self):
         """تهيئة واجهة المستخدم"""
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
+        self.setWindowIcon(_load_app_icon())
         self.setMinimumSize(1000, 750)
         self.setLayoutDirection(Qt.RightToLeft)
         
@@ -1469,6 +1470,20 @@ class FileSizeDuplicateFinder(QMainWindow):
 # نقطة الدخول
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _load_app_icon() -> QIcon:
+    """تحميل أيقونة التطبيق من مجلد assets (ico ثم png عالي الدقة كاحتياطي)."""
+    base_dir = Path(__file__).resolve().parent
+    candidates = [
+        base_dir / "assets" / "icon.ico",
+        base_dir / "assets" / "icon.png",
+        base_dir / "assets" / "icons" / "icon_256.png",
+    ]
+    for path in candidates:
+        if path.exists():
+            return QIcon(str(path))
+    return QIcon()
+
+
 def main():
     """نقطة الدخول الرئيسية"""
     # دعم الشاشات عالية الدقة
@@ -1476,20 +1491,21 @@ def main():
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-    
+
     app = QApplication(sys.argv)
-    
+    app.setWindowIcon(_load_app_icon())
+
     # إعداد الخط
     font = QFont("Segoe UI", 10)
     app.setFont(font)
-    
+
     # إعداد الاتجاه
     app.setLayoutDirection(Qt.RightToLeft)
-    
+
     # إنشاء النافذة
     window = FileSizeDuplicateFinder()
     window.show()
-    
+
     sys.exit(app.exec_())
 
 
