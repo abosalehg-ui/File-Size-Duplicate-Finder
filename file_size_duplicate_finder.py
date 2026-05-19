@@ -136,110 +136,156 @@ class OperationBatch:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class FileSearchThread(QThread):
-    """خيط منفصل للبحث عن الملفات المتقاربة"""
+    """خيط منفصل للبحث عن الملفات المتقاربة.
+
+    يدعم البحث المتداخل في المجلدات الفرعية، خوارزمية تجميع بنافذة
+    منزلقة O(n log n)، واستثناء المجلدات النظامية.
+    """
     progress = pyqtSignal(int, str)
     finished_search = pyqtSignal(list)
     error = pyqtSignal(str)
-    
-    def __init__(self, folder_path: str, threshold_mb: float, same_ext_only: bool):
+
+    def __init__(
+        self,
+        folder_path: str,
+        threshold_mb: float,
+        same_ext_only: bool,
+        recursive: bool = False,
+        exclude_dirs: Optional[set] = None,
+    ):
         super().__init__()
         self.folder_path = folder_path
         self.threshold_mb = threshold_mb
         self.same_ext_only = same_ext_only
+        self.recursive = recursive
+        self.exclude_dirs = exclude_dirs if exclude_dirs is not None else DEFAULT_EXCLUDE_DIRS
         self.is_running = True
-    
+
     def stop(self):
         self.is_running = False
-    
+
+    def _iter_files(self):
+        """مولّد لقراءة الملفات (مسطح أو متداخل) باستخدام os.scandir."""
+        if self.recursive:
+            stack = [self.folder_path]
+            while stack and self.is_running:
+                current = stack.pop()
+                try:
+                    with os.scandir(current) as it:
+                        for entry in it:
+                            if not self.is_running:
+                                return
+                            try:
+                                if entry.is_dir(follow_symlinks=False):
+                                    if entry.name not in self.exclude_dirs:
+                                        stack.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    yield entry
+                            except OSError:
+                                continue
+                except (PermissionError, OSError):
+                    continue
+        else:
+            try:
+                with os.scandir(self.folder_path) as it:
+                    for entry in it:
+                        if not self.is_running:
+                            return
+                        try:
+                            if entry.is_file(follow_symlinks=False):
+                                yield entry
+                        except OSError:
+                            continue
+            except (PermissionError, OSError):
+                return
+
     def run(self):
         try:
             self.progress.emit(0, "جاري جمع معلومات الملفات...")
             files_info = []
-            
-            # جمع معلومات الملفات
-            items = os.listdir(self.folder_path)
-            total_items = len(items)
-            
-            for idx, item in enumerate(items):
+            count = 0
+            last_emit = 0
+
+            for entry in self._iter_files():
                 if not self.is_running:
                     return
-                
-                item_path = os.path.join(self.folder_path, item)
-                if os.path.isfile(item_path):
-                    try:
-                        stat = os.stat(item_path)
-                        size = stat.st_size
-                        ext = os.path.splitext(item)[1].lower()
-                        created = datetime.fromtimestamp(stat.st_ctime)
-                        modified = datetime.fromtimestamp(stat.st_mtime)
-                        
-                        files_info.append({
-                            'path': item_path,
-                            'name': item,
-                            'size': size,
-                            'ext': ext,
-                            'created': created.strftime("%Y-%m-%d %H:%M"),
-                            'modified': modified.strftime("%Y-%m-%d %H:%M")
-                        })
-                    except (OSError, PermissionError):
-                        continue
-                
-                progress = int((idx + 1) / total_items * 50)
-                self.progress.emit(progress, f"جاري فحص الملفات... ({idx + 1}/{total_items})")
-            
+                try:
+                    stat = entry.stat(follow_symlinks=False)
+                    size = stat.st_size
+                    ext = os.path.splitext(entry.name)[1].lower()
+                    files_info.append({
+                        'path': entry.path,
+                        'name': entry.name,
+                        'size': size,
+                        'ext': ext,
+                        'created': datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%d %H:%M"),
+                        'modified': datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                    })
+                except (OSError, PermissionError):
+                    continue
+
+                count += 1
+                # إرسال إشارة تقدم كل 200 ملف لتجنب إغراق الواجهة
+                if count - last_emit >= 200:
+                    self.progress.emit(
+                        min(45, count // 50),
+                        f"جاري فحص الملفات... ({count} ملف)"
+                    )
+                    last_emit = count
+
             if not self.is_running:
                 return
-            
-            self.progress.emit(50, "جاري تحليل التقارب في الأحجام...")
-            
-            # ترتيب حسب الحجم
-            files_info.sort(key=lambda x: x['size'])
-            
-            # إيجاد المجموعات المتقاربة
-            threshold_bytes = self.threshold_mb * 1024 * 1024
-            groups = []
-            used_indices = set()
-            
-            total_files = len(files_info)
-            
-            for i, file1 in enumerate(files_info):
-                if not self.is_running:
-                    return
-                
-                if i in used_indices:
-                    continue
-                
-                current_group = [file1]
-                used_indices.add(i)
-                
-                for j, file2 in enumerate(files_info[i+1:], start=i+1):
-                    if j in used_indices:
-                        continue
-                    
-                    size_diff = abs(file2['size'] - file1['size'])
-                    
-                    if size_diff <= threshold_bytes:
-                        if self.same_ext_only:
-                            if file1['ext'] == file2['ext']:
-                                current_group.append(file2)
-                                used_indices.add(j)
-                        else:
-                            current_group.append(file2)
-                            used_indices.add(j)
-                    else:
-                        break
-                
-                if len(current_group) > 1:
-                    groups.append(current_group)
-                
-                progress = 50 + int((i + 1) / total_files * 50)
-                self.progress.emit(progress, f"جاري تحليل المجموعات... ({len(groups)} مجموعة)")
-            
+
+            self.progress.emit(50, f"جاري تحليل {len(files_info)} ملف بخوارزمية النافذة المنزلقة...")
+
+            groups = self._group_with_sliding_window(files_info)
+
             self.progress.emit(100, f"اكتمل البحث - {len(groups)} مجموعة")
             self.finished_search.emit(groups)
-            
+
         except Exception as e:
             self.error.emit(str(e))
+
+    def _group_with_sliding_window(self, files_info: List[Dict]) -> List[List[Dict]]:
+        """تجميع الملفات المتقاربة بالحجم باستخدام نافذة منزلقة O(n log n).
+
+        خوارزمية: بعد فرز الملفات بالحجم، نمسح كل ملف مرة واحدة ونضمّه
+        إلى المجموعة الحالية إذا كان الفرق ≤ threshold عن أول ملف في المجموعة.
+        """
+        if not files_info:
+            return []
+
+        threshold_bytes = int(self.threshold_mb * 1024 * 1024)
+        files_info.sort(key=lambda x: x['size'])
+
+        groups: List[List[Dict]] = []
+        current: List[Dict] = [files_info[0]]
+        anchor_size = files_info[0]['size']
+
+        for f in files_info[1:]:
+            if not self.is_running:
+                return groups
+            if f['size'] - anchor_size <= threshold_bytes:
+                current.append(f)
+            else:
+                if len(current) > 1:
+                    groups.extend(self._split_by_extension(current))
+                current = [f]
+                anchor_size = f['size']
+
+        if len(current) > 1:
+            groups.extend(self._split_by_extension(current))
+
+        return groups
+
+    def _split_by_extension(self, group: List[Dict]) -> List[List[Dict]]:
+        """عند تفعيل خيار "نفس الامتداد فقط"، نفصل المجموعة حسب الامتداد."""
+        if not self.same_ext_only:
+            return [group]
+        by_ext: Dict[str, List[Dict]] = {}
+        for f in group:
+            by_ext.setdefault(f['ext'], []).append(f)
+        return [files for files in by_ext.values() if len(files) > 1]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -936,7 +982,15 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.same_ext_check = QCheckBox("🏷️ نفس الامتداد فقط")
         self.same_ext_check.setToolTip("البحث فقط في الملفات التي لها نفس الامتداد")
         options_layout.addWidget(self.same_ext_check)
-        
+
+        options_layout.addSpacing(15)
+
+        self.recursive_check = QCheckBox("🌳 المجلدات الفرعية")
+        self.recursive_check.setToolTip(
+            "البحث المتداخل في كل المجلدات الفرعية (يتجاهل المجلدات النظامية مثل .git و node_modules)"
+        )
+        options_layout.addWidget(self.recursive_check)
+
         options_layout.addStretch()
         settings_layout.addLayout(options_layout)
         
@@ -1188,7 +1242,8 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.search_thread = FileSearchThread(
             folder,
             self.threshold_spin.value(),
-            self.same_ext_check.isChecked()
+            self.same_ext_check.isChecked(),
+            recursive=self.recursive_check.isChecked(),
         )
         self.search_thread.progress.connect(self.on_search_progress)
         self.search_thread.finished_search.connect(self.on_search_finished)
