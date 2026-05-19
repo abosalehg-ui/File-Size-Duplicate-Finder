@@ -93,6 +93,15 @@ DEFAULT_EXCLUDE_DIRS = {
 # أدوات مساعدة عامة
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# أوضاع كشف التكرار
+DETECT_MODE_SIZE = "size"            # حجم متقارب فقط (الوضع الأصلي)
+DETECT_MODE_PARTIAL_HASH = "partial" # نفس الحجم + partial hash (سريع، دقيق)
+DETECT_MODE_FULL_HASH = "full"       # تكرار حقيقي 100% (full hash)
+
+HASH_CACHE_FILE = ".file_finder_hash_cache.json"
+PARTIAL_HASH_CHUNK = 64 * 1024       # 64KB من بداية ونهاية الملف
+
+
 def format_bytes(size: int) -> str:
     """تحويل الحجم بالبايت إلى صيغة قابلة للقراءة."""
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -100,6 +109,93 @@ def format_bytes(size: int) -> str:
             return f"{size:.2f} {unit}" if unit != "B" else f"{int(size)} {unit}"
         size /= 1024.0
     return f"{size:.2f} TB"
+
+
+def compute_partial_hash(path: str, chunk_size: int = PARTIAL_HASH_CHUNK) -> Optional[str]:
+    """حساب hash جزئي من أول وآخر chunk_size بايت — سريع جداً."""
+    try:
+        size = os.path.getsize(path)
+        h = hashlib.md5()
+        with open(path, 'rb') as f:
+            # البداية
+            h.update(f.read(chunk_size))
+            # النهاية (إذا كان الملف أكبر من 2×chunk)
+            if size > 2 * chunk_size:
+                f.seek(-chunk_size, os.SEEK_END)
+                h.update(f.read(chunk_size))
+        # ضمّ الحجم للـ hash لتمييز الملفات ذات البدايات/النهايات المتطابقة
+        h.update(str(size).encode())
+        return h.hexdigest()
+    except (OSError, PermissionError):
+        return None
+
+
+def compute_full_hash(path: str, chunk_size: int = 1024 * 1024) -> Optional[str]:
+    """حساب SHA-256 الكامل عبر streaming لتجنب تحميل ملفات ضخمة في الذاكرة."""
+    try:
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(chunk_size), b''):
+                h.update(chunk)
+        return h.hexdigest()
+    except (OSError, PermissionError):
+        return None
+
+
+class HashCache:
+    """تخزين مؤقت لقيم الـ hash مع مفتاح (path, mtime, size) لتجنب إعادة الحساب."""
+
+    def __init__(self, cache_dir: Optional[str] = None):
+        self.cache_dir = cache_dir or os.path.expanduser("~")
+        self.path = os.path.join(self.cache_dir, HASH_CACHE_FILE)
+        self.data: Dict[str, dict] = self._load()
+
+    def _load(self) -> Dict[str, dict]:
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {}
+
+    def save(self):
+        try:
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f)
+        except OSError:
+            pass
+
+    def _is_fresh(self, entry: dict, mtime: float, size: int) -> bool:
+        return entry.get('mtime') == mtime and entry.get('size') == size
+
+    def get_partial(self, path: str, mtime: float, size: int) -> Optional[str]:
+        entry = self.data.get(path)
+        if entry and self._is_fresh(entry, mtime, size):
+            return entry.get('partial')
+        return None
+
+    def get_full(self, path: str, mtime: float, size: int) -> Optional[str]:
+        entry = self.data.get(path)
+        if entry and self._is_fresh(entry, mtime, size):
+            return entry.get('full')
+        return None
+
+    def set_partial(self, path: str, mtime: float, size: int, value: str):
+        entry = self.data.setdefault(path, {})
+        if not self._is_fresh(entry, mtime, size):
+            entry.clear()
+        entry['mtime'] = mtime
+        entry['size'] = size
+        entry['partial'] = value
+
+    def set_full(self, path: str, mtime: float, size: int, value: str):
+        entry = self.data.setdefault(path, {})
+        if not self._is_fresh(entry, mtime, size):
+            entry.clear()
+        entry['mtime'] = mtime
+        entry['size'] = size
+        entry['full'] = value
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -152,6 +248,7 @@ class FileSearchThread(QThread):
         same_ext_only: bool,
         recursive: bool = False,
         exclude_dirs: Optional[set] = None,
+        detect_mode: str = DETECT_MODE_SIZE,
     ):
         super().__init__()
         self.folder_path = folder_path
@@ -159,6 +256,7 @@ class FileSearchThread(QThread):
         self.same_ext_only = same_ext_only
         self.recursive = recursive
         self.exclude_dirs = exclude_dirs if exclude_dirs is not None else DEFAULT_EXCLUDE_DIRS
+        self.detect_mode = detect_mode
         self.is_running = True
 
     def stop(self):
@@ -240,11 +338,84 @@ class FileSearchThread(QThread):
 
             groups = self._group_with_sliding_window(files_info)
 
+            # تنقية المجموعات بالـ hash إذا كان مطلوباً
+            if self.detect_mode in (DETECT_MODE_PARTIAL_HASH, DETECT_MODE_FULL_HASH) and groups:
+                groups = self._refine_by_hash(groups)
+
             self.progress.emit(100, f"اكتمل البحث - {len(groups)} مجموعة")
             self.finished_search.emit(groups)
 
         except Exception as e:
             self.error.emit(str(e))
+
+    def _refine_by_hash(self, groups: List[List[Dict]]) -> List[List[Dict]]:
+        """تنقية المجموعات: حساب hash لكل ملف وإعادة التجميع حسب التطابق الفعلي."""
+        cache = HashCache()
+        total_files = sum(len(g) for g in groups)
+        processed = 0
+        refined: List[List[Dict]] = []
+        use_full = self.detect_mode == DETECT_MODE_FULL_HASH
+        label = "SHA-256 كامل" if use_full else "Partial hash"
+
+        for group in groups:
+            if not self.is_running:
+                cache.save()
+                return refined
+
+            # الخطوة الأولى: partial hash لتقسيم المجموعة سريعاً
+            buckets_partial: Dict[str, List[Dict]] = {}
+            for f in group:
+                if not self.is_running:
+                    cache.save()
+                    return refined
+                try:
+                    stat = os.stat(f['path'])
+                    mtime, size = stat.st_mtime, stat.st_size
+                except OSError:
+                    processed += 1
+                    continue
+                ph = cache.get_partial(f['path'], mtime, size)
+                if ph is None:
+                    ph = compute_partial_hash(f['path'])
+                    if ph:
+                        cache.set_partial(f['path'], mtime, size, ph)
+                if ph:
+                    buckets_partial.setdefault(ph, []).append(f)
+                processed += 1
+                pct = 50 + int(processed / max(total_files, 1) * 50)
+                self.progress.emit(pct, f"حساب {label}... ({processed}/{total_files})")
+
+            for bucket in buckets_partial.values():
+                if len(bucket) < 2:
+                    continue
+                if not use_full:
+                    refined.append(bucket)
+                    continue
+
+                # الخطوة الثانية: full hash للمطابقات في partial
+                buckets_full: Dict[str, List[Dict]] = {}
+                for f in bucket:
+                    if not self.is_running:
+                        cache.save()
+                        return refined
+                    try:
+                        stat = os.stat(f['path'])
+                        mtime, size = stat.st_mtime, stat.st_size
+                    except OSError:
+                        continue
+                    fh = cache.get_full(f['path'], mtime, size)
+                    if fh is None:
+                        fh = compute_full_hash(f['path'])
+                        if fh:
+                            cache.set_full(f['path'], mtime, size, fh)
+                    if fh:
+                        buckets_full.setdefault(fh, []).append(f)
+                for sub in buckets_full.values():
+                    if len(sub) > 1:
+                        refined.append(sub)
+
+        cache.save()
+        return refined
 
     def _group_with_sliding_window(self, files_info: List[Dict]) -> List[List[Dict]]:
         """تجميع الملفات المتقاربة بالحجم باستخدام نافذة منزلقة O(n log n).
@@ -991,6 +1162,20 @@ class FileSizeDuplicateFinder(QMainWindow):
         )
         options_layout.addWidget(self.recursive_check)
 
+        options_layout.addSpacing(15)
+
+        options_layout.addWidget(QLabel("🔍 وضع الكشف:"))
+        self.detect_mode_combo = QComboBox()
+        self.detect_mode_combo.addItem("حجم متقارب (سريع)", DETECT_MODE_SIZE)
+        self.detect_mode_combo.addItem("Partial hash (متوازن)", DETECT_MODE_PARTIAL_HASH)
+        self.detect_mode_combo.addItem("تكرار حقيقي SHA-256 (دقيق)", DETECT_MODE_FULL_HASH)
+        self.detect_mode_combo.setToolTip(
+            "حجم متقارب: مقارنة الأحجام فقط.\n"
+            "Partial hash: نفس الحجم + توقيع من بداية ونهاية الملف.\n"
+            "تكرار حقيقي: SHA-256 كامل — أبطأ لكن مضمون."
+        )
+        options_layout.addWidget(self.detect_mode_combo)
+
         options_layout.addStretch()
         settings_layout.addLayout(options_layout)
         
@@ -1244,6 +1429,7 @@ class FileSizeDuplicateFinder(QMainWindow):
             self.threshold_spin.value(),
             self.same_ext_check.isChecked(),
             recursive=self.recursive_check.isChecked(),
+            detect_mode=self.detect_mode_combo.currentData() or DETECT_MODE_SIZE,
         )
         self.search_thread.progress.connect(self.on_search_progress)
         self.search_thread.finished_search.connect(self.on_search_finished)
