@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""
-PyInstaller spec — يبني تنفيذياً قابلاً للتوزيع لـ Windows/Linux/macOS.
+"""PyInstaller spec — يبني تنفيذياً قابلاً للتوزيع لـ Windows/Linux/macOS.
 
 الاستخدام:
     pip install pyinstaller
@@ -11,6 +10,7 @@ PyInstaller spec — يبني تنفيذياً قابلاً للتوزيع لـ 
 - يضمّن مجلد assets/ بكامله ليكون الأيقونة متاحة وقت التشغيل.
 - على ويندوز يستخدم icon.ico، على macOS يحتاج icon.icns (يُولّد لاحقاً).
 - console=False ليكون GUI نقياً (لا نافذة CMD على Windows).
+- upx=False: ضغط UPX معروف بكسر بعض Qt DLLs على Windows.
 """
 
 import sys
@@ -19,8 +19,6 @@ from pathlib import Path
 ROOT = Path(SPECPATH).resolve()
 ICON_ICO = str(ROOT / "assets" / "icon.ico")
 
-block_cipher = None
-
 a = Analysis(
     ['file_size_duplicate_finder.py'],
     pathex=[str(ROOT)],
@@ -28,18 +26,15 @@ a = Analysis(
     datas=[
         (str(ROOT / "assets"), "assets"),
     ],
-    hiddenimports=['send2trash', 'PyQt5.QtMultimedia'],
+    hiddenimports=['send2trash'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'numpy', 'pandas'],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data)
 
 exe = EXE(
     pyz,
@@ -52,7 +47,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

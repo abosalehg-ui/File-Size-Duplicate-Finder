@@ -1,0 +1,28 @@
+name: Build executables
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install PyQt5 send2trash pyinstaller
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --clean --noconfirm
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileSizeDuplicateFinder-${{ runner.os }}
+          path: dist/

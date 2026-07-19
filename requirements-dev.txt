@@ -1,3 +1,4 @@
+# الأفضل: pip install -e ".[dev,gui]"
 PyQt5>=5.15
 send2trash>=1.8
 

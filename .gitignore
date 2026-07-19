@@ -9,7 +9,13 @@ __pycache__/
 *.bak
 .history_backup/
 .file_finder_hash_cache.json
+.file_finder_hash_cache.sqlite3
 file_finder_history.json
+
+# بناء وتوزيع
+build/
+dist/
+*.egg-info/
 
 # بيئات Python
 .venv/
