@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "file-size-duplicate-finder"
+version = "4.0.0"
+description = "أداة عزل الملفات المكررة والمتقاربة بالحجم — GUI (PyQt5) + CLI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Abdulkarim Alaboud", email = "abo.saleh.g@gmail.com" },
+]
+keywords = ["duplicates", "dedupe", "files", "pyqt5", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Environment :: X11 Applications :: Qt",
+    "Topic :: Desktop Environment :: File Managers",
+]
+# المحرك والـ CLI لا يحتاجان أي تبعية خارجية — Qt والسلة اختياريتان
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PyQt5>=5.15", "send2trash>=1.8"]
+dev = ["pytest>=7.0", "ruff>=0.4", "pyinstaller>=6.0"]
+
+[project.scripts]
+file-finder = "finder.cli:main"
+
+[project.gui-scripts]
+file-finder-gui = "finder.gui.main_window:main"
+
+[project.urls]
+Repository = "https://github.com/abosalehg-ui/File-Size-Duplicate-Finder"
+
+[tool.setuptools.packages.find]
+include = ["finder*"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "E9", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
