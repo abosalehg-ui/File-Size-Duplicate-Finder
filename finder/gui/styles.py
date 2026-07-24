@@ -71,6 +71,18 @@ QTabBar::tab {
     border-top-left-radius: 5px; border-top-right-radius: 5px;
 }
 QTabBar::tab:selected { background: #3498db; color: white; }
+QLabel#statsBox {
+    background-color: #e8f4fc; color: #2c3e50;
+    padding: 10px; border-radius: 5px; font-weight: bold;
+}
+QLabel#dryRunSummary {
+    background-color: #E3F2FD; color: #0d2137;
+    border-radius: 8px; border: 1px solid #90CAF9;
+}
+QLabel#warningBox {
+    color: #BF360C; background-color: #FFF3E0;
+    padding: 8px; border-radius: 6px; border: 1px solid #FFAB91;
+}
 """
 
 DARK_QSS = """
@@ -133,6 +145,18 @@ QTabBar::tab:selected { background: #5c6bc0; color: white; }
 QLabel { color: #cdd6f4; }
 QMenu { background-color: #2a2a3e; color: #cdd6f4; border: 1px solid #44475a; }
 QMenu::item:selected { background-color: #5c6bc0; }
+QLabel#statsBox {
+    background-color: #26344a; color: #dbe4ff;
+    padding: 10px; border-radius: 5px; font-weight: bold;
+}
+QLabel#dryRunSummary {
+    background-color: #26344a; color: #dbe4ff;
+    border-radius: 8px; border: 1px solid #3d5170;
+}
+QLabel#warningBox {
+    color: #ffccbc; background-color: #3a2a20;
+    padding: 8px; border-radius: 6px; border: 1px solid #6d4030;
+}
 """
 
 

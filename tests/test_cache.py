@@ -1,7 +1,18 @@
 import json
 import os
 
+import pytest
+
 from finder.core.cache import LEGACY_JSON_FILE, HashCache
+
+
+def test_invalid_kind_rejected(tmp_path):
+    # التحقق صريح (ValueError) لا assert — لأن اسم العمود يدخل نص SQL
+    with HashCache(str(tmp_path)) as cache:
+        with pytest.raises(ValueError):
+            cache.get("/x/a", 1.0, 100, "evil")
+        with pytest.raises(ValueError):
+            cache.set("/x/a", 1.0, 100, "evil", "v")
 
 
 def test_set_get_roundtrip(tmp_path):

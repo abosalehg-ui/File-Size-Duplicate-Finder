@@ -3,19 +3,9 @@ import os
 from finder.ops.operations import move_groups, restore_batch
 
 
-def info(path: str) -> dict:
-    return {
-        "path": path,
-        "name": os.path.basename(path),
-        "size": os.path.getsize(path),
-        "ext": os.path.splitext(path)[1],
-        "mtime": os.path.getmtime(path),
-    }
-
-
-def test_move_creates_group_folders(tmp_path, make_file):
-    a = info(make_file("a.txt", b"1"))
-    b = info(make_file("b.txt", b"2"))
+def test_move_creates_group_folders(tmp_path, make_file, file_info):
+    a = file_info(make_file("a.txt", b"1"))
+    b = file_info(make_file("b.txt", b"2"))
     result = move_groups([[a, b]], str(tmp_path), "op1")
     assert result["moved_count"] == 2
     assert result["error_files"] == []
@@ -24,9 +14,9 @@ def test_move_creates_group_folders(tmp_path, make_file):
     assert not os.path.exists(a["path"])
 
 
-def test_move_name_collision_renamed(tmp_path, make_file):
-    a = info(make_file("x/same.txt", b"1"))
-    b = info(make_file("y/same.txt", b"22"))
+def test_move_name_collision_renamed(tmp_path, make_file, file_info):
+    a = file_info(make_file("x/same.txt", b"1"))
+    b = file_info(make_file("y/same.txt", b"22"))
     result = move_groups([[a, b]], str(tmp_path), "op2")
     assert result["moved_count"] == 2
     dest_dir = tmp_path / "duplicates_sorted" / "folder_1"
@@ -42,10 +32,10 @@ def test_move_missing_file_reported(tmp_path):
     assert result["error_files"] == ["ghost.txt"]
 
 
-def test_restore_returns_files(tmp_path, make_file):
-    a = info(make_file("a.txt", b"1"))
+def test_restore_returns_files(tmp_path, make_file, file_info):
+    a = file_info(make_file("a.txt", b"1"))
     original = a["path"]
-    batch_result = move_groups([[a, info(make_file("b.txt", b"2"))]],
+    batch_result = move_groups([[a, file_info(make_file("b.txt", b"2"))]],
                                str(tmp_path), "op4")
     batch = {
         "operation_id": "op4",
@@ -60,9 +50,9 @@ def test_restore_returns_files(tmp_path, make_file):
     assert not os.path.exists(batch_result["dest_folder"])
 
 
-def test_restore_collision_gets_suffix(tmp_path, make_file):
-    a = info(make_file("a.txt", b"old"))
-    result = move_groups([[a, info(make_file("b.txt", b"x"))]], str(tmp_path), "op5")
+def test_restore_collision_gets_suffix(tmp_path, make_file, file_info):
+    a = file_info(make_file("a.txt", b"old"))
+    result = move_groups([[a, file_info(make_file("b.txt", b"x"))]], str(tmp_path), "op5")
     # ملف جديد ظهر بنفس المسار الأصلي قبل الإرجاع
     (tmp_path / "a.txt").write_bytes(b"new")
     restore = restore_batch({
@@ -75,9 +65,9 @@ def test_restore_collision_gets_suffix(tmp_path, make_file):
     assert (tmp_path / "a_restored_1.txt").read_bytes() == b"old"
 
 
-def test_restore_partial_reports_failed_ops(tmp_path, make_file):
-    a = info(make_file("a.txt", b"1"))
-    b = info(make_file("b.txt", b"2"))
+def test_restore_partial_reports_failed_ops(tmp_path, make_file, file_info):
+    a = file_info(make_file("a.txt", b"1"))
+    b = file_info(make_file("b.txt", b"2"))
     result = move_groups([[a, b]], str(tmp_path), "op6")
     # حذف أحد الملفات من الوجهة يدوياً → يفشل إرجاعه
     os.remove(result["operations"][0]["dest"])

@@ -8,13 +8,15 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QUrl, QSettings, pyqtSignal  # noqa: F401 (pyqtSignal للتوسعة)
-from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap
+from PyQt5.QtCore import Qt, QUrl, QSettings
+from PyQt5.QtGui import (
+    QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPixmap,
+)
 from PyQt5.QtWidgets import (
     QAction, QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
     QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QSplitter,
-    QStatusBar, QTabWidget, QTextEdit, QToolButton, QTreeWidget,
+    QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QShortcut,
+    QSplitter, QStatusBar, QTabWidget, QTextEdit, QToolButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -28,6 +30,9 @@ from ..ops.operations import (
     OUTPUT_DIR_NAME, TRASH_AVAILABLE, move_groups, restore_batch, trash_groups,
 )
 from .dialogs import DryRunDialog, HistoryDialog
+from .selection import (
+    STATE_CHECKED, STATE_PARTIAL, group_tristate, partition_keep_one,
+)
 from .styles import DARK_QSS, LIGHT_QSS, group_palette
 from .workers import Worker
 
@@ -133,6 +138,10 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("جاهز للعمل")
 
+        # اختصار تركيز حقل الفلترة (Ctrl+F)
+        filter_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        filter_shortcut.activated.connect(self._focus_filter)
+
         copyright_label = QLabel(f"تطوير: {DEVELOPER} | {EMAIL} | {COPYRIGHT}")
         copyright_label.setAlignment(Qt.AlignCenter)
         copyright_label.setStyleSheet("color: #666; font-size: 11px; padding: 5px;")
@@ -200,7 +209,11 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.folder_input = QLineEdit()
         self.folder_input.setPlaceholderText("اختر المجلد للبحث فيه أو اسحبه إلى النافذة...")
         self.folder_input.setReadOnly(True)
+        self.folder_input.setAccessibleName("مسار مجلد البحث")
         browse_btn = QPushButton("استعراض 📂")
+        browse_btn.setShortcut(QKeySequence("Ctrl+O"))
+        browse_btn.setAccessibleName("استعراض واختيار مجلد")
+        browse_btn.setToolTip("اختيار مجلد البحث (Ctrl+O)")
         browse_btn.clicked.connect(self.browse_folder)
         folder_layout.addWidget(folder_label)
         folder_layout.addWidget(self.folder_input, 1)
@@ -245,52 +258,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         settings_layout.addLayout(options_layout)
         layout.addWidget(settings_group)
 
-        # أزرار التحكم
-        control_layout = QHBoxLayout()
-        self.search_btn = QPushButton("🔍 بدء البحث")
-        self.search_btn.setMinimumHeight(45)
-        self.search_btn.clicked.connect(self.start_search)
-        self.stop_btn = QPushButton("⏹ إيقاف")
-        self.stop_btn.setEnabled(False)
-        self.stop_btn.clicked.connect(self.stop_current_worker)
-        self.stop_btn.setStyleSheet(
-            "QPushButton { background-color: #e74c3c; }"
-            "QPushButton:hover { background-color: #c0392b; }"
-            "QPushButton:disabled { background-color: #bdc3c7; }"
-        )
-        self.move_btn = QPushButton("📦 عزل المحدد")
-        self.move_btn.setEnabled(False)
-        self.move_btn.clicked.connect(self.move_files)
-        self.move_btn.setStyleSheet(
-            "QPushButton { background-color: #27ae60; }"
-            "QPushButton:hover { background-color: #1e8449; }"
-            "QPushButton:disabled { background-color: #bdc3c7; }"
-        )
-        self.trash_btn = QPushButton("🗑️ سلة المحذوفات")
-        self.trash_btn.setEnabled(False)
-        self.trash_btn.clicked.connect(self.move_to_trash)
-        self.trash_btn.setToolTip(
-            "إرسال الملفات المحددة إلى سلة محذوفات النظام (قابلة للاسترداد)"
-            if TRASH_AVAILABLE else "غير متوفر — ثبّت send2trash"
-        )
-        self.trash_btn.setStyleSheet(
-            "QPushButton { background-color: #c0392b; }"
-            "QPushButton:hover { background-color: #962d22; }"
-            "QPushButton:disabled { background-color: #bdc3c7; }"
-        )
-        self.restore_btn = QPushButton("🔄 إرجاع الملفات")
-        self.restore_btn.clicked.connect(self.show_history_dialog)
-        self.restore_btn.setStyleSheet(
-            "QPushButton { background-color: #f39c12; }"
-            "QPushButton:hover { background-color: #d68910; }"
-        )
-        control_layout.addWidget(self.search_btn)
-        control_layout.addWidget(self.stop_btn)
-        control_layout.addWidget(self.move_btn)
-        control_layout.addWidget(self.trash_btn)
-        control_layout.addStretch()
-        control_layout.addWidget(self.restore_btn)
-        layout.addLayout(control_layout)
+        layout.addLayout(self._create_control_row())
 
         # شريط التقدم
         progress_layout = QHBoxLayout()
@@ -309,18 +277,17 @@ class FileSizeDuplicateFinder(QMainWindow):
         results_layout = QVBoxLayout(results_group)
 
         self.stats_label = QLabel("📊 لم يتم البحث بعد")
-        self.stats_label.setStyleSheet(
-            "background-color: #e8f4fc; color: #2c3e50; padding: 10px; "
-            "border-radius: 5px; font-weight: bold;"
-        )
+        # الألوان في styles.py (objectName) لتتبع الوضع الفاتح/الداكن
+        self.stats_label.setObjectName("statsBox")
         results_layout.addWidget(self.stats_label)
 
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("🔎 فلترة:"))
         self.filter_input = QLineEdit()
         self.filter_input.setPlaceholderText(
-            "اكتب جزءاً من اسم الملف أو الامتداد لتصفية المجموعات فوراً..."
+            "اكتب جزءاً من اسم الملف أو الامتداد لتصفية المجموعات فوراً... (Ctrl+F)"
         )
+        self.filter_input.setAccessibleName("فلترة النتائج")
         self.filter_input.textChanged.connect(self.apply_results_filter)
         filter_row.addWidget(self.filter_input, 1)
         clear_filter_btn = QToolButton()
@@ -332,6 +299,7 @@ class FileSizeDuplicateFinder(QMainWindow):
 
         self.results_tree = QTreeWidget()
         self.results_tree.setHeaderLabels(["", "المجموعة", "اسم الملف", "الحجم", "الامتداد"])
+        self.results_tree.setAccessibleName("نتائج مجموعات الملفات المتقاربة")
         self.results_tree.setAlternatingRowColors(True)
         self.results_tree.itemChanged.connect(self.on_item_check_changed)
         self.results_tree.itemClicked.connect(self.on_item_clicked)
@@ -347,32 +315,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.results_tree.setColumnWidth(0, 40)
         results_layout.addWidget(self.results_tree)
 
-        # أزرار التحديد — تشمل التحديد الذكي (إبقاء نسخة)
-        select_layout = QHBoxLayout()
-        select_all_btn = QPushButton("☑ تحديد الكل")
-        select_all_btn.clicked.connect(self.select_all)
-        select_all_btn.setStyleSheet("background-color: #9b59b6;")
-        deselect_all_btn = QPushButton("☐ إلغاء التحديد")
-        deselect_all_btn.clicked.connect(self.deselect_all)
-        deselect_all_btn.setStyleSheet("background-color: #95a5a6;")
-        keep_newest_btn = QPushButton("🧠 الكل عدا الأحدث")
-        keep_newest_btn.setToolTip("تحديد كل ملفات كل مجموعة ما عدا الأحدث تعديلاً (تبقى نسخة)")
-        keep_newest_btn.clicked.connect(lambda: self.smart_select(keep="newest"))
-        keep_newest_btn.setStyleSheet("background-color: #8e44ad;")
-        keep_oldest_btn = QPushButton("🧠 الكل عدا الأقدم")
-        keep_oldest_btn.setToolTip("تحديد كل ملفات كل مجموعة ما عدا الأقدم تعديلاً (تبقى نسخة)")
-        keep_oldest_btn.clicked.connect(lambda: self.smart_select(keep="oldest"))
-        keep_oldest_btn.setStyleSheet("background-color: #8e44ad;")
-        export_btn = QPushButton("💾 تصدير التقرير")
-        export_btn.clicked.connect(self.export_report)
-        export_btn.setStyleSheet("background-color: #1abc9c;")
-        select_layout.addWidget(select_all_btn)
-        select_layout.addWidget(deselect_all_btn)
-        select_layout.addWidget(keep_newest_btn)
-        select_layout.addWidget(keep_oldest_btn)
-        select_layout.addStretch()
-        select_layout.addWidget(export_btn)
-        results_layout.addLayout(select_layout)
+        results_layout.addLayout(self._create_select_row())
         splitter.addWidget(results_group)
 
         # معاينة الملف
@@ -395,6 +338,92 @@ class FileSizeDuplicateFinder(QMainWindow):
         splitter.setSizes([500, 160])
         layout.addWidget(splitter, 1)
         return widget
+
+    def _create_control_row(self) -> QHBoxLayout:
+        """صف أزرار التحكم (بحث/إيقاف/عزل/سلة/إرجاع)."""
+        control_layout = QHBoxLayout()
+        self.search_btn = QPushButton("🔍 بدء البحث")
+        self.search_btn.setMinimumHeight(45)
+        self.search_btn.setShortcut(QKeySequence("F5"))
+        self.search_btn.setAccessibleName("بدء البحث")
+        self.search_btn.setToolTip("بدء البحث عن الملفات المتقاربة (F5)")
+        self.search_btn.clicked.connect(self.start_search)
+        self.stop_btn = QPushButton("⏹ إيقاف")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setAccessibleName("إيقاف العملية الجارية")
+        self.stop_btn.clicked.connect(self.stop_current_worker)
+        self.stop_btn.setStyleSheet(
+            "QPushButton { background-color: #e74c3c; }"
+            "QPushButton:hover { background-color: #c0392b; }"
+            "QPushButton:disabled { background-color: #bdc3c7; }"
+        )
+        self.move_btn = QPushButton("📦 عزل المحدد")
+        self.move_btn.setEnabled(False)
+        self.move_btn.setAccessibleName("عزل الملفات المحددة إلى مجلدات")
+        self.move_btn.clicked.connect(self.move_files)
+        self.move_btn.setStyleSheet(
+            "QPushButton { background-color: #27ae60; }"
+            "QPushButton:hover { background-color: #1e8449; }"
+            "QPushButton:disabled { background-color: #bdc3c7; }"
+        )
+        self.trash_btn = QPushButton("🗑️ سلة المحذوفات")
+        self.trash_btn.setEnabled(False)
+        self.trash_btn.setAccessibleName("إرسال المحدد إلى سلة المحذوفات")
+        self.trash_btn.clicked.connect(self.move_to_trash)
+        self.trash_btn.setToolTip(
+            "إرسال الملفات المحددة إلى سلة محذوفات النظام (قابلة للاسترداد)"
+            if TRASH_AVAILABLE else "غير متوفر — ثبّت send2trash"
+        )
+        self.trash_btn.setStyleSheet(
+            "QPushButton { background-color: #c0392b; }"
+            "QPushButton:hover { background-color: #962d22; }"
+            "QPushButton:disabled { background-color: #bdc3c7; }"
+        )
+        self.restore_btn = QPushButton("🔄 إرجاع الملفات")
+        self.restore_btn.setAccessibleName("فتح سجل العمليات لإرجاع الملفات")
+        self.restore_btn.clicked.connect(self.show_history_dialog)
+        self.restore_btn.setStyleSheet(
+            "QPushButton { background-color: #f39c12; }"
+            "QPushButton:hover { background-color: #d68910; }"
+        )
+        control_layout.addWidget(self.search_btn)
+        control_layout.addWidget(self.stop_btn)
+        control_layout.addWidget(self.move_btn)
+        control_layout.addWidget(self.trash_btn)
+        control_layout.addStretch()
+        control_layout.addWidget(self.restore_btn)
+        return control_layout
+
+    def _create_select_row(self) -> QHBoxLayout:
+        """صف أزرار التحديد — يشمل التحديد الذكي (إبقاء نسخة) والتصدير."""
+        select_layout = QHBoxLayout()
+        select_all_btn = QPushButton("☑ تحديد الكل")
+        select_all_btn.clicked.connect(self.select_all)
+        select_all_btn.setStyleSheet("background-color: #9b59b6;")
+        deselect_all_btn = QPushButton("☐ إلغاء التحديد")
+        deselect_all_btn.clicked.connect(self.deselect_all)
+        deselect_all_btn.setStyleSheet("background-color: #95a5a6;")
+        keep_newest_btn = QPushButton("🧠 الكل عدا الأحدث")
+        keep_newest_btn.setToolTip("تحديد كل ملفات كل مجموعة ما عدا الأحدث تعديلاً (تبقى نسخة)")
+        keep_newest_btn.clicked.connect(lambda: self.smart_select(keep="newest"))
+        keep_newest_btn.setStyleSheet("background-color: #8e44ad;")
+        keep_oldest_btn = QPushButton("🧠 الكل عدا الأقدم")
+        keep_oldest_btn.setToolTip("تحديد كل ملفات كل مجموعة ما عدا الأقدم تعديلاً (تبقى نسخة)")
+        keep_oldest_btn.clicked.connect(lambda: self.smart_select(keep="oldest"))
+        keep_oldest_btn.setStyleSheet("background-color: #8e44ad;")
+        export_btn = QPushButton("💾 تصدير التقرير")
+        export_btn.setShortcut(QKeySequence("Ctrl+S"))
+        export_btn.setAccessibleName("تصدير تقرير النتائج")
+        export_btn.setToolTip("تصدير النتائج إلى ملف (Ctrl+S)")
+        export_btn.clicked.connect(self.export_report)
+        export_btn.setStyleSheet("background-color: #1abc9c;")
+        select_layout.addWidget(select_all_btn)
+        select_layout.addWidget(deselect_all_btn)
+        select_layout.addWidget(keep_newest_btn)
+        select_layout.addWidget(keep_oldest_btn)
+        select_layout.addStretch()
+        select_layout.addWidget(export_btn)
+        return select_layout
 
     def _create_log_tab(self) -> QWidget:
         widget = QWidget()
@@ -498,8 +527,26 @@ class FileSizeDuplicateFinder(QMainWindow):
             self.settings.setValue("last_folder", folder)
             self.log_message(f"تم اختيار المجلد: {folder}")
 
-    def _size_mode_active(self) -> bool:
-        return (self.detect_mode_combo.currentData() or MODE_SIZE) == MODE_SIZE
+    def _content_warning(self) -> str:
+        """رسالة تحذير إن كان وضع الكشف الحالي لا يضمن تطابق المحتوى.
+
+        - وضع الحجم: يقارن الأحجام فقط.
+        - وضع partial: توقيع من بداية ونهاية الملف — قد يعطي تطابقاً كاذباً
+          لملفات كبيرة لا تختلف إلا في وسطها. الضمان الكامل في وضع SHA-256.
+        فارغة ("") في وضع full لأنه مطابقة مؤكدة.
+        """
+        mode = self.detect_mode_combo.currentData() or MODE_SIZE
+        if mode == MODE_SIZE:
+            return (
+                "⚠️ <b>وضع الكشف الحالي يقارن الأحجام فقط</b> — تقارب الحجم لا يعني "
+                "تطابق المحتوى. للتأكد من التكرار الفعلي استخدم وضع Partial أو SHA-256."
+            )
+        if mode == MODE_PARTIAL:
+            return (
+                "⚠️ <b>وضع Partial يقارن بداية ونهاية الملف فقط</b> — قد تظهر ملفات "
+                "كبيرة تختلف في وسطها كأنها متطابقة. للتأكد التام استخدم وضع SHA-256."
+            )
+        return ""
 
     def start_search(self):
         folder = self.folder_input.text()
@@ -625,6 +672,11 @@ class FileSizeDuplicateFinder(QMainWindow):
                 group_item.setBackground(col, bg)
                 group_item.setForeground(col, fg)
 
+    def _focus_filter(self):
+        self.tab_widget.setCurrentIndex(0)
+        self.filter_input.setFocus()
+        self.filter_input.selectAll()
+
     def apply_results_filter(self, text: str):
         text = (text or "").strip().lower()
         root = self.results_tree.invisibleRootItem()
@@ -671,12 +723,13 @@ class FileSizeDuplicateFinder(QMainWindow):
             visible += 1
             if child.checkState(0) == Qt.Checked:
                 checked += 1
-        if visible == 0 or checked == 0:
-            group_item.setCheckState(0, Qt.Unchecked)
-        elif checked == visible:
-            group_item.setCheckState(0, Qt.Checked)
-        else:
-            group_item.setCheckState(0, Qt.PartiallyChecked)
+        # قرار الحالة الثلاثية في وحدة نقية مُختبَرة (selection.group_tristate)
+        state = group_tristate(visible, checked)
+        qt_state = {
+            STATE_CHECKED: Qt.Checked,
+            STATE_PARTIAL: Qt.PartiallyChecked,
+        }.get(state, Qt.Unchecked)
+        group_item.setCheckState(0, qt_state)
 
     def _set_all_checks(self, state):
         self._updating_checks = True
@@ -717,19 +770,16 @@ class FileSizeDuplicateFinder(QMainWindow):
                     group.child(j) for j in range(group.childCount())
                     if not group.child(j).isHidden()
                 ]
-                if len(visible) < 2:
-                    for child in visible:
-                        child.setCheckState(0, Qt.Unchecked)
-                    self._sync_group_state(group)
-                    continue
-                pick = max if keep == "newest" else min
-                kept = pick(
-                    visible,
-                    key=lambda c: (c.data(0, Qt.UserRole) or {}).get("mtime", 0),
+                # القرار في وحدة نقية مُختبَرة: أي الملفات تُحدَّد وأيّها يبقى.
+                # نطابق بهوية العنصر (id) لأن قواميس الملفات قد تتساوى قيمةً.
+                infos = [(c, c.data(0, Qt.UserRole) or {}) for c in visible]
+                to_select, _kept = partition_keep_one(
+                    [info for _c, info in infos], keep=keep
                 )
-                for child in visible:
+                select_ids = {id(info) for info in to_select}
+                for child, info in infos:
                     child.setCheckState(
-                        0, Qt.Unchecked if child is kept else Qt.Checked
+                        0, Qt.Checked if id(info) in select_ids else Qt.Unchecked
                     )
                 self._sync_group_state(group)
         finally:
@@ -829,7 +879,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         dlg = DryRunDialog(
             selected, "عزل إلى مجلدات",
             fully_selected_groups=fully_selected,
-            size_mode_warning=self._size_mode_active(),
+            content_warning=self._content_warning(),
             parent=self,
         )
         dlg.exec_()
@@ -892,7 +942,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         dlg = DryRunDialog(
             selected, "إرسال إلى سلة المحذوفات",
             fully_selected_groups=fully_selected,
-            size_mode_warning=self._size_mode_active(),
+            content_warning=self._content_warning(),
             parent=self,
         )
         dlg.exec_()
@@ -999,16 +1049,14 @@ class FileSizeDuplicateFinder(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(
             self, "حفظ التقرير",
             f"duplicate_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            "Text Files (*.txt);;CSV Files (*.csv)",
+            "Text Files (*.txt);;CSV Files (*.csv);;JSON Files (*.json)",
         )
         if not file_path:
             return
-        from ..core.reports import write_csv, write_txt
+        # محرك موحّد لاختيار الصيغة بالامتداد (نفس منطق الـ CLI: .csv / .json / .txt)
+        from ..core.reports import write_report
         try:
-            if file_path.endswith(".csv"):
-                write_csv(self.similar_groups, file_path)
-            else:
-                write_txt(self.similar_groups, file_path)
+            write_report(self.similar_groups, file_path)
             QMessageBox.information(self, "نجاح", f"تم حفظ التقرير:\n{file_path}")
             self.log_message(f"تم تصدير التقرير: {file_path}", "SUCCESS")
         except OSError as e:

@@ -120,7 +120,7 @@ class DryRunDialog(QDialog):
         selected_groups: list[list[dict]],
         action_label: str,
         fully_selected_groups: int = 0,
-        size_mode_warning: bool = False,
+        content_warning: str = "",
         parent=None,
     ):
         super().__init__(parent)
@@ -129,10 +129,10 @@ class DryRunDialog(QDialog):
         self.setWindowTitle(f"📋 معاينة العملية — {action_label}")
         self.setMinimumSize(820, 560)
         self.setLayoutDirection(Qt.RightToLeft)
-        self._build_ui(action_label, fully_selected_groups, size_mode_warning)
+        self._build_ui(action_label, fully_selected_groups, content_warning)
 
     def _build_ui(
-        self, action_label: str, fully_selected: int, size_mode_warning: bool
+        self, action_label: str, fully_selected: int, content_warning: str
     ) -> None:
         layout = QVBoxLayout(self)
 
@@ -146,10 +146,8 @@ class DryRunDialog(QDialog):
             f"🔹 <b>إجمالي الملفات:</b> {total_files}<br>"
             f"🔹 <b>الحجم الكلي:</b> {format_bytes(total_size)}</div>"
         )
-        summary.setStyleSheet(
-            "background-color:#E3F2FD; color:#0d2137; border-radius:8px; "
-            "border:1px solid #90CAF9;"
-        )
+        # الألوان في styles.py (objectName) لتتبع الوضع الفاتح/الداكن
+        summary.setObjectName("dryRunSummary")
         layout.addWidget(summary)
 
         if total_files >= LARGE_OP_FILE_COUNT or total_size >= LARGE_OP_SIZE_BYTES:
@@ -157,11 +155,8 @@ class DryRunDialog(QDialog):
                 "⚠️ <b>تنبيه:</b> هذه عملية كبيرة — راجع القائمة بعناية قبل المتابعة."
             ))
 
-        if size_mode_warning:
-            layout.addWidget(self._warning_label(
-                "⚠️ <b>وضع الكشف الحالي يقارن الأحجام فقط</b> — تقارب الحجم لا يعني "
-                "تطابق المحتوى. للتأكد من التكرار الفعلي استخدم وضع Partial أو SHA-256."
-            ))
+        if content_warning:
+            layout.addWidget(self._warning_label(content_warning))
 
         tree = QTreeWidget()
         tree.setHeaderLabels(["الاسم", "الحجم", "الامتداد", "المسار"])
@@ -215,10 +210,8 @@ class DryRunDialog(QDialog):
     def _warning_label(html: str) -> QLabel:
         label = QLabel(html)
         label.setWordWrap(True)
-        label.setStyleSheet(
-            "color:#BF360C; background-color:#FFF3E0; padding:8px; "
-            "border-radius:6px; border:1px solid #FFAB91;"
-        )
+        # الألوان في styles.py (objectName) لتتبع الوضع الفاتح/الداكن
+        label.setObjectName("warningBox")
         return label
 
     def _update_confirm_state(self) -> None:
