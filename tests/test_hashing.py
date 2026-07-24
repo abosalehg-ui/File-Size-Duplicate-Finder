@@ -8,17 +8,6 @@ from finder.core.hashing import (
 )
 
 
-def info(path: str) -> dict:
-    import os
-    return {
-        "path": path,
-        "name": os.path.basename(path),
-        "size": os.path.getsize(path),
-        "ext": os.path.splitext(path)[1],
-        "mtime": os.path.getmtime(path),
-    }
-
-
 def test_identical_files_same_hashes(make_file):
     a = make_file("a.bin", b"hello world" * 100)
     b = make_file("b.bin", b"hello world" * 100)
@@ -53,19 +42,19 @@ def test_cancel_raises(make_file):
         compute_partial_hash(a, cancel=token)
 
 
-def test_refine_partial_separates_false_positives(make_file):
+def test_refine_partial_separates_false_positives(make_file, file_info):
     # ثلاثة ملفات بنفس الحجم: اثنان متطابقان وواحد مختلف
-    a = info(make_file("a.bin", b"same-content-1234"))
-    b = info(make_file("b.bin", b"same-content-1234"))
-    c = info(make_file("c.bin", b"diff-content-1234"))
+    a = file_info(make_file("a.bin", b"same-content-1234"))
+    b = file_info(make_file("b.bin", b"same-content-1234"))
+    c = file_info(make_file("c.bin", b"diff-content-1234"))
     refined = refine_groups_by_hash([[a, b, c]], use_full=False)
     assert len(refined) == 1
     assert {x["name"] for x in refined[0]} == {"a.bin", "b.bin"}
 
 
-def test_refine_full_mode(make_file):
-    a = info(make_file("a.bin", b"payload" * 300))
-    b = info(make_file("b.bin", b"payload" * 300))
+def test_refine_full_mode(make_file, file_info):
+    a = file_info(make_file("a.bin", b"payload" * 300))
+    b = file_info(make_file("b.bin", b"payload" * 300))
     refined = refine_groups_by_hash([[a, b]], use_full=True)
     assert len(refined) == 1
     assert len(refined[0]) == 2

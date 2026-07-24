@@ -66,9 +66,16 @@ class HashCache:
         except (OSError, json.JSONDecodeError, sqlite3.Error):
             pass
 
+    @staticmethod
+    def _check_kind(kind: str) -> None:
+        # تحقق صريح (لا assert) حتى يبقى فعّالاً تحت python -O — لأن اسم
+        # العمود يُدرَج في نص SQL، فلا يُترك للاعتماد على تعطيلٍ اختياري.
+        if kind not in ("partial", "full"):
+            raise ValueError(f"kind غير صالح: {kind!r} (المتوقع 'partial' أو 'full')")
+
     def get(self, path: str, mtime: float, size: int, kind: str) -> str | None:
         """kind: 'partial' أو 'full'. يرجع None إذا لا مدخل أو المدخل بائت."""
-        assert kind in ("partial", "full")
+        self._check_kind(kind)
         with self._lock:
             row = self._conn.execute(
                 f"SELECT mtime, size, {kind} FROM hashes WHERE path = ?", (path,)
@@ -78,7 +85,7 @@ class HashCache:
         return row[2]
 
     def set(self, path: str, mtime: float, size: int, kind: str, value: str) -> None:
-        assert kind in ("partial", "full")
+        self._check_kind(kind)
         other = "full" if kind == "partial" else "partial"
         with self._lock:
             # إذا تغيّر الملف، القيمة الأخرى تصبح بائتة وتُمسح
