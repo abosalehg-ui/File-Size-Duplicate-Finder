@@ -6,7 +6,7 @@
 - finder.cli: واجهة سطر الأوامر
 """
 
-__version__ = "4.1.0"
+__version__ = "4.1.1"
 APP_NAME = "أداة عزل الملفات المتقاربة بالحجم"
 DEVELOPER = "عبدالكريم العبود"
 EMAIL = "abo.saleh.g@gmail.com"
