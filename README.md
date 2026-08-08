@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/Python-3.9+-blue.svg" alt="Python">
 <img src="https://img.shields.io/badge/PyQt5-5.15+-green.svg" alt="PyQt5">
 <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform">
-<img src="https://img.shields.io/badge/Version-4.1-orange.svg" alt="Version">
+<img src="https://img.shields.io/badge/Version-4.1.1-orange.svg" alt="Version">
 <img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License">
 
 **أداة متقدمة للبحث عن الملفات المكررة وعزلها — كشف بالحجم أو بالـ Hash المتوازي، محرك موحد للواجهة والـ CLI، وواجهة أُعيد تصميمها بنظام تصميم موحّد**
@@ -36,15 +36,15 @@
 
 **الوضع الفاتح — النتائج ولوحة المعاينة**
 
-![الوضع الفاتح](screenshots/screenshot1.png)
+![الوضع الفاتح](screenshots/ui-light-results.png)
 
-**الوضع الداكن — مع لوحة سجل النشاط**
+**الوضع الداكن — نفس الشاشة بعد «تحديد الكل عدا الأحدث»**
 
-![الوضع الداكن](screenshots/screenshot2.png)
+![الوضع الداكن](screenshots/ui-dark-results.png)
 
 **المعاينة الإجبارية قبل أي عملية**
 
-![معاينة العملية](screenshots/screenshot3.png)
+![معاينة العملية](screenshots/ui-dry-run.png)
 
 </div>
 

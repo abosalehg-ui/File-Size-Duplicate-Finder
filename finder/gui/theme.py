@@ -445,6 +445,10 @@ QHeaderView::section {{
 }}
 QHeaderView::section:hover {{ color: {p.text}; }}
 
+/* منطقة التمرير شفافة لتظهر خلفية البطاقة من تحتها */
+QScrollArea {{ background: transparent; border: 0; }}
+QScrollArea > QWidget > QWidget {{ background: transparent; }}
+
 /* ── أشرطة التمرير ───────────────────────────────────────────────── */
 QScrollBar:vertical {{ background: transparent; width: 11px; margin: 2px; }}
 QScrollBar:horizontal {{ background: transparent; height: 11px; margin: 2px; }}

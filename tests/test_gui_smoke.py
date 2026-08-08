@@ -193,6 +193,29 @@ def test_preview_fills_fields_on_selection(window, tmp_path):
     assert groups[0][0]["name"] in window.preview_fields["name"]._value.text()
 
 
+def test_log_panel_never_overlaps_results_rows(app, window, tmp_path):
+    """أضيق نافذة مسموحة + لوحة السجل مفتوحة: لا تتراكب العناصر.
+
+    كانت بطاقة النتائج تتجاوز مساحتها فتُرسم أزرار التحديد فوق صفوف الشجرة.
+    """
+    groups = _groups(tmp_path)
+    window.similar_groups = groups
+    window.display_results(groups)
+    window.resize(window.minimumWidth(), window.minimumHeight())
+    window.act_log.setChecked(True)
+    window.show()
+    app.processEvents()
+
+    stack_bottom = window.results_stack.y() + window.results_stack.height()
+    first_button = window.select_row_buttons[0]
+    assert first_button.y() >= stack_bottom, (
+        f"زر التحديد عند y={first_button.y()} وأسفل الشجرة {stack_bottom}"
+    )
+    # ولا يخرج صف الأزرار عن حدود البطاقة
+    card = first_button.parent()
+    assert first_button.y() + first_button.height() <= card.height()
+
+
 def test_busy_state_turns_primary_button_into_stop(window):
     window._set_busy(True)
     assert window.search_btn.text() == "إيقاف"

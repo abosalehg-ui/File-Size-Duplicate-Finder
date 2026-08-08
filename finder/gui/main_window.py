@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (
     QAction, QApplication, QCheckBox, QComboBox, QDockWidget,
     QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QProgressBar,
-    QPushButton, QSizePolicy, QSplitter, QStackedWidget, QStatusBar,
+    QPushButton, QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QStatusBar,
     QToolBar, QToolButton, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget,
 )
@@ -159,7 +159,10 @@ class FileSizeDuplicateFinder(QMainWindow):
     def init_ui(self):
         self.setWindowTitle(f"{APP_NAME} — v{__version__}")
         self.setWindowIcon(load_app_icon())
-        self.setMinimumSize(1040, 700)
+        # عرض أدنى صريح فقط. الطول الأدنى يُحسبه Qt من التخطيط نفسه: لو
+        # فُرض طول أصغر من حاجة التخطيط الحقيقية اقتطع Qt المحتوى فرُسمت
+        # العناصر فوق بعضها (كان يحدث عند فتح لوحة السجل).
+        self.setMinimumWidth(960)
         self.resize(1240, 820)
         self.setLayoutDirection(Qt.RightToLeft)
 
@@ -537,8 +540,11 @@ class FileSizeDuplicateFinder(QMainWindow):
         card.body.addLayout(filter_row)
 
         self.results_stack = QStackedWidget()
-        # حدّ أدنى متحفظ: لو ضاق الطول تتقلّص الشجرة بدل أن تزحف على ما تحتها
-        self.results_stack.setMinimumHeight(120)
+        # سياسة Ignored رأسياً: الشجرة تتقلّص بحرية إذا ضاق الطول (عند فتح
+        # لوحة السجل على نافذة قصيرة مثلاً) بدل أن يتجاوز التخطيط البطاقة
+        # فتُرسم أزرار التحديد فوق الصفوف. الحدّ الأدنى يبقي سطراً مرئياً.
+        self.results_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
+        self.results_stack.setMinimumHeight(40)
         self.results_tree = self._build_tree()
         self.placeholder = EmptyState("search", "", "", "استعراض مجلد")
         self.placeholder.action_clicked.connect(self.browse_folder)
@@ -581,6 +587,7 @@ class FileSizeDuplicateFinder(QMainWindow):
     def _build_select_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_SM)
+        self.select_row_buttons: list[QPushButton] = []
         for action in (
             self.act_select_all, self.act_deselect_all,
             self.act_keep_newest, self.act_keep_oldest,
@@ -589,6 +596,7 @@ class FileSizeDuplicateFinder(QMainWindow):
             self._bind(button, action)
             self._reg_icon(button, self._icon_name_of(action), "text", theme.ICON_SM)
             row.addWidget(button)
+            self.select_row_buttons.append(button)
         row.addStretch(1)
         export_btn = apply_variant(QPushButton("تصدير التقرير"), "ghost")
         self._bind(export_btn, self.act_export)
@@ -628,10 +636,12 @@ class FileSizeDuplicateFinder(QMainWindow):
         self._rethemable.append(self.preview_empty)
         self.preview_stack.addWidget(self.preview_empty)
 
-        details = QWidget()
-        details_layout = QVBoxLayout(details)
-        details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setSpacing(theme.SPACE_MD)
+        # التفاصيل داخل منطقة تمرير، والأزرار مثبّتة أسفلها: إذا قصُر الطول
+        # تُمرَّر الحقول بدل أن تتراكب على الأزرار.
+        scrolled = QWidget()
+        scrolled_layout = QVBoxLayout(scrolled)
+        scrolled_layout.setContentsMargins(0, 0, 0, 0)
+        scrolled_layout.setSpacing(theme.SPACE_MD)
 
         thumb_box = QFrame()
         thumb_box.setObjectName("thumbBox")
@@ -641,7 +651,7 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.preview_thumb = QLabel()
         self.preview_thumb.setAlignment(Qt.AlignCenter)
         thumb_layout.addWidget(self.preview_thumb)
-        details_layout.addWidget(thumb_box)
+        scrolled_layout.addWidget(thumb_box)
 
         self.preview_fields = {
             "name": FieldRow("الاسم"),
@@ -652,8 +662,22 @@ class FileSizeDuplicateFinder(QMainWindow):
             "dir": FieldRow("المجلد"),
         }
         for field in self.preview_fields.values():
-            details_layout.addWidget(field)
-        details_layout.addStretch(1)
+            scrolled_layout.addWidget(field)
+        scrolled_layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidget(scrolled)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
+        scroll.setMinimumHeight(60)
+
+        details = QWidget()
+        details_layout = QVBoxLayout(details)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        details_layout.setSpacing(theme.SPACE_MD)
+        details_layout.addWidget(scroll, 1)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SPACE_SM)
@@ -718,13 +742,15 @@ class FileSizeDuplicateFinder(QMainWindow):
         self.log_text.setObjectName("logView")
         self.log_text.setReadOnly(True)
         self.log_text.setAccessibleName("سجل النشاط")
+        # حدّ أدنى صغير: اللوحة لا ترفع الطول الأدنى للنافذة أكثر من اللازم
+        self.log_text.setMinimumHeight(56)
 
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(
             theme.SPACE_MD, theme.SPACE_SM, theme.SPACE_MD, theme.SPACE_SM
         )
-        layout.setSpacing(theme.SPACE_SM)
+        layout.setSpacing(theme.SPACE_XS)
         layout.addWidget(self.log_text, 1)
 
         buttons = QHBoxLayout()
@@ -744,7 +770,6 @@ class FileSizeDuplicateFinder(QMainWindow):
         dock.setAllowedAreas(Qt.BottomDockWidgetArea)
         dock.setFeatures(QDockWidget.DockWidgetClosable)
         dock.setWidget(content)
-        dock.setMinimumHeight(150)
         dock.hide()
         dock.visibilityChanged.connect(self._on_log_visibility)
         self.addDockWidget(Qt.BottomDockWidgetArea, dock)
@@ -752,6 +777,10 @@ class FileSizeDuplicateFinder(QMainWindow):
 
     def _toggle_log_dock(self, visible: bool):
         self.log_dock.setVisible(visible)
+        if visible:
+            # ارتفاع ابتدائي معقول: لولاه أخذت اللوحة حجمها المقترح الكبير
+            # فتقلّصت شجرة النتائج إلى سطر واحد
+            self.resizeDocks([self.log_dock], [190], Qt.Vertical)
 
     def _on_log_visibility(self, visible: bool):
         if self.act_log.isChecked() != visible:
