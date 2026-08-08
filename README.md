@@ -8,10 +8,10 @@
 <img src="https://img.shields.io/badge/Python-3.9+-blue.svg" alt="Python">
 <img src="https://img.shields.io/badge/PyQt5-5.15+-green.svg" alt="PyQt5">
 <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform">
-<img src="https://img.shields.io/badge/Version-4.0-orange.svg" alt="Version">
+<img src="https://img.shields.io/badge/Version-4.1-orange.svg" alt="Version">
 <img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License">
 
-**أداة متقدمة للبحث عن الملفات المكررة وعزلها — كشف بالحجم أو بالـ Hash المتوازي، محرك موحد للواجهة والـ CLI، واختبارات و CI**
+**أداة متقدمة للبحث عن الملفات المكررة وعزلها — كشف بالحجم أو بالـ Hash المتوازي، محرك موحد للواجهة والـ CLI، وواجهة أُعيد تصميمها بنظام تصميم موحّد**
 
 [العربية](#العربية) | [English](#english)
 
@@ -34,15 +34,23 @@
 
 <div align="center">
 
-| الواجهة الرئيسية | نتائج البحث |
-|:---:|:---:|
-| ![الشاشة الرئيسية](screenshots/screenshot1.png) | ![النتائج](screenshots/screenshot2.png) |
+**الوضع الفاتح — النتائج ولوحة المعاينة**
+
+![الوضع الفاتح](screenshots/screenshot1.png)
+
+**الوضع الداكن — مع لوحة سجل النشاط**
+
+![الوضع الداكن](screenshots/screenshot2.png)
+
+**المعاينة الإجبارية قبل أي عملية**
+
+![معاينة العملية](screenshots/screenshot3.png)
 
 </div>
 
 ## ✨ المميزات الكاملة
 
-### 🔍 محرّك البحث (الإصدار 4.0)
+### 🔍 محرّك البحث
 | الميزة | الوصف |
 |--------|-------|
 | **3 أوضاع كشف** | حجم متقارب (سريع) • Partial hash (متوازن، بداية+نهاية الملف) • SHA-256 كامل (دقيق 100%) |
@@ -68,15 +76,23 @@
 | **تنبيه للعمليات الكبيرة** | يحذّر عند تجاوز 100 ملف أو 1GB |
 | **معالجة تصادم الأسماء** | إعادة تسمية تلقائية عند وجود ملف بنفس الاسم |
 
-### 🎨 الواجهة (UX)
+### 🎨 الواجهة (UX) — أُعيد تصميمها في 4.1
 | الميزة | الوصف |
 |--------|-------|
+| **🆕 نظام تصميم موحّد** | رموز ألوان ومقاسات واحدة (`gui/theme.py`) تبني الوضعين الفاتح والداكن — لا لون مكتوب داخل منطق الواجهة |
+| **🆕 أيقونات متجهة** | طقم SVG أحادي السماكة يُلوَّن من الثيم (`gui/icons.py`) بدل الإيموجي المختلفة بين المنصات |
+| **🆕 ثلاث مناطق واضحة** | نطاق البحث ← النتائج ← شريط إجراءات سفلي، وإجراء أساسي واحد يتحول إلى «إيقاف» أثناء العمل |
+| **🆕 شريط قوائم واختصارات** | كل إجراء في مكان واحد مع اختصار لوحة مفاتيح، ودليل استخدام (F1) |
+| **🆕 شريط إجراءات ذكي** | يعرض حجم وعدد المحدد، ويبقى معطّلاً حتى يوجد تحديد فعلي، ويحذّر لحظة تحديد مجموعة بالكامل |
+| **🆕 لوحة معاينة جانبية** | تفاصيل مرتبة + thumbnail + «فتح الموقع» و«نسخ المسار» — والشجرة صارت الأوسع |
+| **🆕 عمود المجلد وترتيب بالأعمدة** | تعرف مصدر كل نسخة فوراً، والحجم يُرتَّب رقمياً لا أبجدياً |
+| **🆕 حالات فارغة موصوفة** | قبل البحث / لا نتائج / لا مطابقات للفلتر — كل واحدة بتلميحها |
+| **🆕 سجل النشاط لوحة سفلية** | Ctrl+L — رؤية السجل لم تعد تُخفي النتائج |
+| **🆕 صياغة عربية سليمة** | «ملفان» و«15 ملفاً» بدل «1 ملفات»، وعزل اتجاهي للمسارات والأحجام |
 | **السحب والإفلات** | اسحب أي مجلد على النافذة لتعيينه كمسار البحث |
-| **الوضع الداكن** | يُحفظ بين الجلسات — 🆕 مع ألوان مجموعات مخصصة للوضع الداكن |
-| **شريط فلتر مباشر** | اكتب لتصفية النتائج فورياً — 🆕 العمليات تشمل الظاهر فقط (WYSIWYG) |
-| **🆕 Checkboxes حقيقية** | تحديد قياسي مع حالة جزئية للمجموعات — أفضل وصولاً |
-| **معاينة الصور** | thumbnail مصغّر بجانب التفاصيل النصية |
-| **تلوين المجموعات** | 15 لوناً لكل وضع (فاتح/داكن) |
+| **الوضع الداكن** | يُحفظ بين الجلسات، ويشمل ما يرسمه Qt نفسه عبر `QPalette` |
+| **شريط فلتر مباشر** | اكتب لتصفية النتائج فورياً — العمليات تشمل الظاهر فقط (WYSIWYG) |
+| **Checkboxes حقيقية** | تحديد قياسي مع حالة جزئية للمجموعات — أفضل وصولاً |
 | **شاشات عالية الدقة** | High-DPI scaling تلقائي |
 
 ### 💻 واجهة سطر الأوامر (CLI)
@@ -148,7 +164,7 @@ pyinstaller build.spec --clean
 ```bash
 pip install -e ".[dev]"
 ruff check finder tests        # الفحص الثابت
-pytest                         # 47 اختباراً للمحرك والعمليات والـ CLI
+pytest                         # 80 اختباراً للمحرك والعمليات والـ CLI والواجهة
 ```
 
 يعمل الفحص والاختبار تلقائياً على كل push عبر GitHub Actions.
@@ -168,10 +184,14 @@ File-Size-Duplicate-Finder/
 │   │   ├── operations.py            #   نقل / سلة / استرجاع
 │   │   └── history.py               #   سجل نوايا + نسخ احتياطية
 │   ├── gui/                         # الواجهة الرسومية (PyQt5)
-│   │   ├── main_window.py
-│   │   ├── dialogs.py               #   المعاينة + السجل
-│   │   ├── workers.py               #   خيط عامل موحد
-│   │   └── styles.py                #   QSS + ألوان المجموعات
+│   │   ├── main_window.py           #   ترتيب الواجهة والإجراءات
+│   │   ├── theme.py                 #   رموز التصميم + QSS + QPalette
+│   │   ├── icons.py                 #   طقم أيقونات SVG متوافق مع الثيم
+│   │   ├── widgets.py               #   بطاقات ورقائق وحالات فارغة
+│   │   ├── textfmt.py               #   صياغة الأعداد وعزل اتجاه النصوص
+│   │   ├── selection.py             #   منطق التحديد (نقي، بلا Qt)
+│   │   ├── dialogs.py               #   المعاينة + السجل + الدليل
+│   │   └── workers.py               #   خيط عامل موحد
 │   └── cli.py                       # واجهة سطر الأوامر
 ├── tests/                           # اختبارات pytest
 ├── .github/workflows/               # CI + بناء التنفيذيات
@@ -196,6 +216,7 @@ File-Size-Duplicate-Finder/
 - ~~تجزئة متوازية وكاش SQLite~~ (4.0)
 - ~~حارس الاحتفاظ بنسخة + التحديد الذكي~~ (4.0)
 - ~~بناء التنفيذيات تلقائياً عبر GitHub Actions~~ (4.0)
+- ~~إعادة تصميم الواجهة: نظام تصميم موحّد وأيقونات متجهة وترتيب يتبع تدفّق العمل~~ (4.1)
 
 قيد التخطيط:
 - نظام ترجمة كامل (i18n) مع تبديل اللغة من القائمة
@@ -208,7 +229,7 @@ File-Size-Duplicate-Finder/
 
 ## 📖 Overview
 
-**File Size Duplicate Finder** (v4.0) is a PyQt5 desktop app + standalone CLI for finding and isolating duplicate files. One shared engine (`finder/core`) powers both interfaces: three detection modes (size / partial hash / full SHA-256), parallel hashing, an SQLite hash cache built for hundreds of thousands of files, and a full safety net (dry-run preview, keep-one guard, recycle bin, intent-logged operations, partial restore).
+**File Size Duplicate Finder** (v4.1) is a PyQt5 desktop app + standalone CLI for finding and isolating duplicate files. One shared engine (`finder/core`) powers both interfaces: three detection modes (size / partial hash / full SHA-256), parallel hashing, an SQLite hash cache built for hundreds of thousands of files, and a full safety net (dry-run preview, keep-one guard, recycle bin, intent-logged operations, partial restore).
 
 ## ✨ Key Features
 
@@ -219,7 +240,8 @@ File-Size-Duplicate-Finder/
 - 🛑 **Keep-one guard**: selecting every file of a group requires explicit acknowledgment
 - 📝 **Intent log**: operations are journaled before execution; interruptions are detected
 - 🔄 **Partial restore**: failed restores stay retryable for the remaining files
-- 🎨 Dark mode (with dedicated dark group palette), drag & drop, live filter (WYSIWYG operations), image thumbnails, High-DPI
+- 🎨 **Redesigned UI (4.1)**: single design-token system driving both light and dark themes, a consistent vector icon set (no emoji), menu bar with full keyboard coverage, selection-aware action bar, side preview panel, sortable columns with a folder column, described empty states, and correct Arabic pluralisation with bidi isolation
+- 🖱️ Drag & drop, live filter (WYSIWYG operations), image thumbnails, High-DPI, persisted window/layout state
 - 💻 **CLI** with documented exit codes (0 found / 1 none / 2 usage / 130 cancelled), `--exclude`, `--workers`, JSON/CSV/TXT export
 
 ## 🚀 Installation
@@ -240,7 +262,7 @@ pip install -e ".[dev]"
 ruff check finder tests && pytest
 ```
 
-CI (lint + 47 tests) runs on every push; tagged releases build executables for Windows/Linux/macOS via GitHub Actions.
+CI (lint + 80 tests) runs on every push; tagged releases build executables for Windows/Linux/macOS via GitHub Actions.
 
 ---
 

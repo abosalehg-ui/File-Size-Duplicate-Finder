@@ -26,7 +26,8 @@ a = Analysis(
     datas=[
         (str(ROOT / "assets"), "assets"),
     ],
-    hiddenimports=['send2trash'],
+    # QtSvg يُستورد داخل try/except لرسم الأيقونات — نصرّح به كي لا يُستبعد
+    hiddenimports=['send2trash', 'PyQt5.QtSvg'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
