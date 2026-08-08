@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "file-size-duplicate-finder"
-version = "4.0.0"
+version = "4.1.0"
 description = "أداة عزل الملفات المكررة والمتقاربة بالحجم — GUI (PyQt5) + CLI"
 readme = "README.md"
 requires-python = ">=3.9"
