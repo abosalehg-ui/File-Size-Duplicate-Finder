@@ -2,6 +2,7 @@
 
 from .cancel import CancelToken, OperationCancelled
 from .cache import HashCache
+from .fileinfo import FileInfo
 from .formats import format_bytes
 from .grouping import group_by_size
 from .hashing import compute_full_hash, compute_partial_hash, refine_groups_by_hash
@@ -11,6 +12,7 @@ __all__ = [
     "CancelToken",
     "OperationCancelled",
     "HashCache",
+    "FileInfo",
     "format_bytes",
     "group_by_size",
     "compute_full_hash",

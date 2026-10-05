@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from ..core.fileinfo import FileInfo
+
 # حالات صندوق تحديد المجموعة (ثلاثية)
 STATE_UNCHECKED = "unchecked"
 STATE_CHECKED = "checked"
@@ -27,15 +29,15 @@ def group_tristate(visible: int, checked: int) -> str:
 
 
 def partition_keep_one(
-    files: list[dict], keep: str = "newest"
-) -> tuple[list[dict], dict | None]:
+    files: list[FileInfo], keep: str = "newest"
+) -> tuple[list[FileInfo], FileInfo | None]:
     """قسمة ملفات مجموعة إلى (المرشّحة للتحديد، الملف المُحتفظ به).
 
     يُحتفظ بالأحدث (`keep="newest"`) أو الأقدم (`keep="oldest"`) تعديلاً،
     فتبقى نسخة واحدة دائماً. المجموعة الأصغر من ملفين لا تُنتج تحديداً
     (لا معنى لعزل نسخة وحيدة).
 
-    المقارنة بالهوية (`is`) لا بالقيمة، حتى تعمل بأمان حين تتساوى قواميس
+    المقارنة بالهوية (`is`) لا بالقيمة، حتى تعمل بأمان حين تتساوى سجلات
     الملفات (نفس الحجم/الاسم) — يُحتفظ بعنصرٍ واحد بعينه لا بكل المتساوين.
     """
     if len(files) < 2:
@@ -43,6 +45,6 @@ def partition_keep_one(
     if keep not in ("newest", "oldest"):
         raise ValueError(f"keep غير صالح: {keep!r} (المتوقع 'newest' أو 'oldest')")
     pick = max if keep == "newest" else min
-    kept = pick(files, key=lambda f: (f or {}).get("mtime", 0))
+    kept = pick(files, key=lambda f: f.mtime)
     to_select = [f for f in files if f is not kept]
     return to_select, kept

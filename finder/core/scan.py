@@ -1,6 +1,6 @@
 """مسح المجلدات (مسطح أو متداخل) باستخدام os.scandir.
 
-يُرجع قوائم dict بمفاتيح ثابتة: path, name, size, ext, mtime.
+يُرجع قوائم FileInfo (path, name, size, ext, mtime).
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import os
 from collections.abc import Callable
 
 from .cancel import CancelToken
+from .fileinfo import FileInfo
 
 DEFAULT_EXCLUDE_DIRS = frozenset({
     ".git", ".svn", ".hg", "__pycache__", "node_modules",
@@ -20,18 +21,18 @@ DEFAULT_EXCLUDE_DIRS = frozenset({
 _PROGRESS_EVERY = 200
 
 
-def _entry_info(entry: os.DirEntry) -> dict | None:
+def _entry_info(entry: os.DirEntry) -> FileInfo | None:
     try:
         stat = entry.stat(follow_symlinks=False)
     except OSError:
         return None
-    return {
-        "path": entry.path,
-        "name": entry.name,
-        "size": stat.st_size,
-        "ext": os.path.splitext(entry.name)[1].lower(),
-        "mtime": stat.st_mtime,
-    }
+    return FileInfo(
+        path=entry.path,
+        name=entry.name,
+        size=stat.st_size,
+        ext=os.path.splitext(entry.name)[1].lower(),
+        mtime=stat.st_mtime,
+    )
 
 
 def scan_folder(
@@ -40,12 +41,12 @@ def scan_folder(
     exclude_dirs: frozenset = DEFAULT_EXCLUDE_DIRS,
     cancel: CancelToken | None = None,
     progress: Callable[[int], None] | None = None,
-) -> list[dict]:
+) -> list[FileInfo]:
     """جمع معلومات الملفات. `progress(count)` يُستدعى دورياً بعدد الملفات المكتشفة.
 
     الروابط الرمزية لا تُتبع (لا للمجلدات ولا للملفات) لمنع الحلقات والعدّ المزدوج.
     """
-    files: list[dict] = []
+    files: list[FileInfo] = []
     count = 0
     stack = [folder]
     while stack:

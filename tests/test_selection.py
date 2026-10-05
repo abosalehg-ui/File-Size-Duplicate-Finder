@@ -1,3 +1,4 @@
+from finder.core.fileinfo import FileInfo
 from finder.gui.selection import (
     STATE_CHECKED, STATE_PARTIAL, STATE_UNCHECKED,
     group_tristate, partition_keep_one,
@@ -5,7 +6,7 @@ from finder.gui.selection import (
 
 
 def f(name, mtime):
-    return {"name": name, "size": 100, "mtime": mtime}
+    return FileInfo(path=f"/x/{name}", name=name, size=100, ext="", mtime=mtime)
 
 
 # ── group_tristate ───────────────────────────────────────────────────────
@@ -29,15 +30,15 @@ def test_tristate_some_checked():
 def test_keep_newest_selects_the_rest():
     files = [f("a", 10), f("b", 30), f("c", 20)]
     to_select, kept = partition_keep_one(files, keep="newest")
-    assert kept["name"] == "b"                     # الأحدث تعديلاً
-    assert {x["name"] for x in to_select} == {"a", "c"}
+    assert kept.name == "b"                     # الأحدث تعديلاً
+    assert {x.name for x in to_select} == {"a", "c"}
 
 
 def test_keep_oldest_selects_the_rest():
     files = [f("a", 10), f("b", 30), f("c", 20)]
     to_select, kept = partition_keep_one(files, keep="oldest")
-    assert kept["name"] == "a"                      # الأقدم تعديلاً
-    assert {x["name"] for x in to_select} == {"b", "c"}
+    assert kept.name == "a"                      # الأقدم تعديلاً
+    assert {x.name for x in to_select} == {"b", "c"}
 
 
 def test_single_file_selects_nothing():
@@ -46,8 +47,8 @@ def test_single_file_selects_nothing():
     assert kept is None
 
 
-def test_identical_dicts_keep_exactly_one():
-    # قاموسان متساويان في القيمة: يجب أن يبقى واحد بعينه ويُحدَّد الآخر فقط
+def test_identical_records_keep_exactly_one():
+    # سجلان متساويان في القيمة: يجب أن يبقى واحد بعينه ويُحدَّد الآخر فقط
     a, b = f("dup", 7), f("dup", 7)
     to_select, kept = partition_keep_one([a, b], keep="newest")
     assert len(to_select) == 1

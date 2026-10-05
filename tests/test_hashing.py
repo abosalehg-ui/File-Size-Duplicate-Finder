@@ -49,7 +49,7 @@ def test_refine_partial_separates_false_positives(make_file, file_info):
     c = file_info(make_file("c.bin", b"diff-content-1234"))
     refined = refine_groups_by_hash([[a, b, c]], use_full=False)
     assert len(refined) == 1
-    assert {x["name"] for x in refined[0]} == {"a.bin", "b.bin"}
+    assert {x.name for x in refined[0]} == {"a.bin", "b.bin"}
 
 
 def test_refine_full_mode(make_file, file_info):
@@ -62,3 +62,30 @@ def test_refine_full_mode(make_file, file_info):
 
 def test_refine_empty():
     assert refine_groups_by_hash([]) == []
+
+
+@pytest.mark.parametrize("size_kb", [65, 100, 128])
+def test_partial_hash_covers_tail_of_small_files(tmp_path, size_kb):
+    """ملفات بين 64 و128KB: اختلاف آخر بايت يجب أن يغيّر البصمة الجزئية.
+
+    كانت الخوارزمية السابقة تقرأ أول 64KB فقط من هذه الملفات.
+    """
+    payload = bytes(range(256)) * (size_kb * 4)
+    a = tmp_path / "a.bin"
+    b = tmp_path / "b.bin"
+    a.write_bytes(payload)
+    b.write_bytes(payload[:-1] + bytes([(payload[-1] + 1) % 256]))
+    assert compute_partial_hash(str(a)) != compute_partial_hash(str(b))
+
+
+def test_partial_hash_large_file_reads_head_and_tail(tmp_path):
+    # فوق 128KB: البداية والنهاية فقط — اختلاف في الوسط لا يُرى (موثّق ومقصود)
+    head, middle, tail = b"H" * 65536, b"M" * 1000, b"T" * 65536
+    a = tmp_path / "a.bin"
+    b = tmp_path / "b.bin"
+    a.write_bytes(head + middle + tail)
+    b.write_bytes(head + b"X" * 1000 + tail)
+    assert compute_partial_hash(str(a)) == compute_partial_hash(str(b))
+    c = tmp_path / "c.bin"
+    c.write_bytes(head + middle + tail[:-1] + b"Z")
+    assert compute_partial_hash(str(a)) != compute_partial_hash(str(c))

@@ -15,6 +15,7 @@ from collections.abc import Callable
 
 from .cache import HashCache
 from .cancel import CancelToken, OperationCancelled
+from .fileinfo import FileInfo
 
 PARTIAL_HASH_CHUNK = 64 * 1024      # 64KB من بداية ونهاية الملف
 FULL_HASH_CHUNK = 1024 * 1024       # قراءة streaming بمقاطع 1MB
@@ -33,6 +34,10 @@ def compute_partial_hash(
 ) -> str | None:
     """MD5 لأول وآخر chunk_size بايت + الحجم (لتمييز البدايات المتطابقة).
 
+    الملف الذي لا يتجاوز 2 × chunk_size يُقرأ كاملاً: قراءة "البداية والنهاية"
+    منه تتداخل أو تترك فجوة، وكانت النسخة السابقة تقرأ أول chunk_size فقط
+    فتتطابق ملفات (64–128KB) لا تختلف إلا في ذيلها.
+
     MD5 هنا للفهرسة السريعة لا للأمان؛ المطابقة النهائية في وضع full تتم بـ SHA-256.
     """
     try:
@@ -41,8 +46,10 @@ def compute_partial_hash(
         size = os.path.getsize(path)
         h = hashlib.md5()
         with open(path, "rb") as f:
-            h.update(f.read(chunk_size))
-            if size > 2 * chunk_size:
+            if size <= 2 * chunk_size:
+                h.update(f.read())
+            else:
+                h.update(f.read(chunk_size))
                 if cancel is not None:
                     cancel.raise_if_cancelled()
                 f.seek(-chunk_size, os.SEEK_END)
@@ -79,12 +86,12 @@ def _default_workers() -> int:
 
 
 def _hash_with_cache(
-    finfo: dict,
+    finfo: FileInfo,
     kind: str,
     cache: HashCache | None,
     cancel: CancelToken | None,
 ) -> str | None:
-    path = finfo["path"]
+    path = finfo.path
     try:
         st = os.stat(path)
     except OSError:
@@ -104,16 +111,16 @@ def _hash_with_cache(
 
 
 def _parallel_hash(
-    items: list[tuple[int, dict]],
+    items: list[tuple[int, FileInfo]],
     kind: str,
     cache: HashCache | None,
     cancel: CancelToken | None,
     progress: ProgressFn | None,
     label: str,
     max_workers: int | None,
-) -> dict[tuple[int, str], list[dict]]:
+) -> dict[tuple[int, str], list[FileInfo]]:
     """تجزئة (group_idx, file) بالتوازي وإرجاع دلاء {(group_idx, hash): files}."""
-    buckets: dict[tuple[int, str], list[dict]] = {}
+    buckets: dict[tuple[int, str], list[FileInfo]] = {}
     total = len(items)
     done = 0
     with ThreadPoolExecutor(max_workers=max_workers or _default_workers()) as ex:
@@ -142,13 +149,13 @@ def _parallel_hash(
 
 
 def refine_groups_by_hash(
-    groups: list[list[dict]],
+    groups: list[list[FileInfo]],
     use_full: bool = False,
     cache: HashCache | None = None,
     cancel: CancelToken | None = None,
     progress: ProgressFn | None = None,
     max_workers: int | None = None,
-) -> list[list[dict]]:
+) -> list[list[FileInfo]]:
     """تنقية مجموعات الحجم إلى مجموعات تطابق فعلي.
 
     المرحلة 1: partial hash (متوازٍ) يقسّم كل مجموعة إلى دلاء.
@@ -163,8 +170,8 @@ def refine_groups_by_hash(
         all_files, "partial", cache, cancel, progress, "Partial hash", max_workers
     )
 
-    refined: list[list[dict]] = []
-    full_candidates: list[tuple[int, dict]] = []
+    refined: list[list[FileInfo]] = []
+    full_candidates: list[tuple[int, FileInfo]] = []
     # معرّف تسلسلي لكل دلو مرشح حتى لا تختلط دلاء partial المختلفة في المرحلة الثانية
     bucket_id = 0
     for bucket in partial_buckets.values():
