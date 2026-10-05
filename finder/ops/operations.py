@@ -8,6 +8,7 @@ from datetime import datetime
 from collections.abc import Callable
 
 from ..core.cancel import CancelToken
+from ..core.fileinfo import FileInfo
 
 try:
     from send2trash import send2trash
@@ -16,6 +17,7 @@ except ImportError:  # pragma: no cover - يعتمد على بيئة التثب�
     TRASH_AVAILABLE = False
 
 ProgressFn = Callable[[int, int], None]  # (done, total)
+JournalFn = Callable[[dict], None]       # تُستدعى بعملية الملف قبل نقله
 
 OUTPUT_DIR_NAME = "duplicates_sorted"
 
@@ -34,17 +36,23 @@ def _unique_dest(dest_path: str, suffix: str = "") -> str:
 
 
 def move_groups(
-    selected_groups: list[list[dict]],
+    selected_groups: list[list[FileInfo]],
     base_folder: str,
     operation_id: str,
     progress: ProgressFn | None = None,
     cancel: CancelToken | None = None,
+    journal: JournalFn | None = None,
 ) -> dict:
     """نقل المجموعات المحددة إلى base_folder/duplicates_sorted/folder_N.
 
     يُرجع dict نتيجة تتضمن operations (لكل ملف: source/dest/name/size/group)
     حتى لو أُلغيت العملية في المنتصف — ما نُقل فعلاً يُسجَّل دائماً ليبقى
     قابلاً للاسترجاع.
+
+    journal: إن مُرِّرت تُستدعى بعملية كل ملف **قبل** نقله (انظر
+    HistoryStore.append_journal)، فيبقى للنقل أثر على القرص حتى لو انهار
+    التطبيق قبل إرجاع النتيجة. إن فشلت كتابة اليومية يتوقف النقل فوراً
+    (journal_error في النتيجة) — لا يُنقل ملف بلا أثر.
     """
     output_folder = os.path.join(base_folder, OUTPUT_DIR_NAME)
     os.makedirs(output_folder, exist_ok=True)
@@ -55,9 +63,10 @@ def move_groups(
     total = sum(len(g) for g in selected_groups)
     done = 0
     cancelled = False
+    journal_error: str | None = None
 
     for group_idx, group_files in enumerate(selected_groups, 1):
-        if cancelled:
+        if cancelled or journal_error:
             break
         group_folder = os.path.join(output_folder, f"folder_{group_idx}")
         os.makedirs(group_folder, exist_ok=True)
@@ -67,26 +76,32 @@ def move_groups(
                 cancelled = True
                 break
             done += 1
-            src = finfo["path"]
+            src = finfo.path
             try:
                 if os.path.isfile(src):
                     dest = _unique_dest(
                         os.path.join(group_folder, os.path.basename(src))
                     )
-                    size = os.path.getsize(src)
-                    shutil.move(src, dest)
-                    operations.append({
+                    op = {
                         "source": src,
                         "dest": dest,
-                        "name": finfo["name"],
-                        "size": size,
+                        "name": finfo.name,
+                        "size": os.path.getsize(src),
                         "group": group_idx,
-                    })
-                    total_size += size
+                    }
+                    if journal is not None:
+                        try:
+                            journal(op)
+                        except OSError as e:
+                            journal_error = str(e)
+                            break
+                    shutil.move(src, dest)
+                    operations.append(op)
+                    total_size += op["size"]
                 else:
-                    error_files.append(finfo["name"])
+                    error_files.append(finfo.name)
             except OSError as e:
-                error_files.append(f"{finfo['name']} ({e})")
+                error_files.append(f"{finfo.name} ({e})")
             if progress is not None:
                 progress(done, total)
 
@@ -100,11 +115,12 @@ def move_groups(
         "error_files": error_files,
         "total_size": total_size,
         "cancelled": cancelled,
+        "journal_error": journal_error,
     }
 
 
 def trash_groups(
-    selected_groups: list[list[dict]],
+    selected_groups: list[list[FileInfo]],
     progress: ProgressFn | None = None,
     cancel: CancelToken | None = None,
 ) -> dict:
@@ -127,14 +143,14 @@ def trash_groups(
                 cancelled = True
                 break
             done += 1
-            path = finfo["path"]
+            path = finfo.path
             try:
                 size = os.path.getsize(path) if os.path.exists(path) else 0
                 send2trash(path)
                 trashed.append(path)
                 total_size += size
             except OSError as e:
-                failed.append(f"{finfo['name']} ({e})")
+                failed.append(f"{finfo.name} ({e})")
             if progress is not None:
                 progress(done, total)
 
@@ -156,15 +172,21 @@ def restore_batch(
 
     يُرجع failed_ops (العمليات التي لم تُسترجع) حتى يمكن وسم الدفعة
     كـ"مسترجعة جزئياً" وإتاحة إعادة المحاولة على المتبقي فقط.
+
+    عملية لا يوجد ملف وجهتها بينما ملفها الأصلي في مكانه تُعدّ "في مكانها"
+    لا فاشلة: هذا ما تتركه يومية سُجّل فيها ملف ثم انقطع التطبيق قبل نقله.
     """
     operations = batch["operations"]
     total = len(operations)
     restored_count = 0
+    already_in_place = 0
+    cancelled = False
     failed_ops: list[dict] = []
     error_names: list[str] = []
 
     for idx, op in enumerate(operations):
         if cancel is not None and cancel.cancelled:
+            cancelled = True
             failed_ops.extend(operations[idx:])
             break
         try:
@@ -173,6 +195,8 @@ def restore_batch(
                 dest_path = _unique_dest(op["source"], suffix="_restored")
                 shutil.move(op["dest"], dest_path)
                 restored_count += 1
+            elif os.path.exists(op["source"]):
+                already_in_place += 1
             else:
                 failed_ops.append(op)
                 error_names.append(op["name"])
@@ -187,8 +211,10 @@ def restore_batch(
     return {
         "operation_id": batch["operation_id"],
         "restored_count": restored_count,
+        "already_in_place": already_in_place,
         "failed_ops": failed_ops,
         "error_files": error_names,
+        "cancelled": cancelled,
     }
 
 

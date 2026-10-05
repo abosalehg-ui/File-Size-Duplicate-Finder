@@ -17,6 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
+from finder.core.fileinfo import FileInfo  # noqa: E402
 from finder.gui import icons, theme  # noqa: E402
 
 
@@ -47,10 +48,7 @@ def _groups(tmp_path, count=3, per_group=3):
         for k in range(per_group):
             path = tmp_path / f"g{gi}_copy{k}.bin"
             path.write_bytes(payload)
-            files.append({
-                "path": str(path), "name": path.name,
-                "size": len(payload), "ext": ".bin",
-            })
+            files.append(FileInfo.from_path(str(path)))
         groups.append(files)
     return groups
 
@@ -159,7 +157,7 @@ def test_filter_limits_operations_to_visible_rows(window, tmp_path):
     selected, _ = window.get_selected()
     # التحديد لا يتجاوز ما يراه المستخدم
     assert len(selected) == 1
-    assert all(f["name"].startswith("g0_") for f in selected[0])
+    assert all(f.name.startswith("g0_") for f in selected[0])
 
 
 def test_filter_with_no_match_shows_placeholder(window, tmp_path):
@@ -190,7 +188,7 @@ def test_preview_fills_fields_on_selection(window, tmp_path):
     first_file = window.results_tree.topLevelItem(0).child(0)
     window.results_tree.setCurrentItem(first_file)
     assert window.preview_stack.currentIndex() == 1
-    assert groups[0][0]["name"] in window.preview_fields["name"]._value.text()
+    assert groups[0][0].name in window.preview_fields["name"]._value.text()
 
 
 def test_log_panel_never_overlaps_results_rows(app, window, tmp_path):
@@ -224,3 +222,155 @@ def test_busy_state_turns_primary_button_into_stop(window):
     window._set_busy(False)
     assert window.search_btn.text() == "بدء البحث"
     assert window.search_btn.property("variant") == "primary"
+
+
+# ── العمليات والإيقاف ────────────────────────────────────────────────────
+def _wait_for(worker, app):
+    worker.wait()
+    app.processEvents()
+
+
+def test_worker_emits_result_even_when_cancelled(app):
+    """عقد Worker: النتيجة الجزئية تصل دائماً — رميُها يعني ملفات بلا سجل."""
+    from finder.gui.workers import Worker
+
+    got = {"ok": None, "cancelled": False}
+
+    def job(progress, cancel):
+        cancel.cancel()
+        return {"cancelled": cancel.cancelled, "moved": 3}
+
+    worker = Worker(job)
+    worker.finished_ok.connect(lambda r: got.update(ok=r))
+    worker.cancelled.connect(lambda: got.update(cancelled=True))
+    worker.start()
+    _wait_for(worker, app)
+    assert got["ok"] == {"cancelled": True, "moved": 3}
+    assert got["cancelled"] is False
+
+
+def test_stop_during_move_records_history_and_unblocks_ui(
+    app, window, tmp_path, monkeypatch
+):
+    """الإيقاف في منتصف النقل: ما نُقل يُسجَّل ويبقى قابلاً للإرجاع، والواجهة تتحرر."""
+    from PyQt5.QtWidgets import QMessageBox
+
+    import finder.gui.controllers as controllers
+
+    src = tmp_path / "src"
+    src.mkdir()
+    group = []
+    for i in range(20):
+        path = src / f"f{i}.bin"
+        path.write_bytes(b"x")
+        group.append(FileInfo.from_path(str(path)))
+
+    window._scan_root = str(src)
+    window.similar_groups = [group]
+    window.display_results([group])
+    window.select_all()
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+
+    class AutoConfirm:
+        def __init__(self, *a, **k):
+            self.confirmed = True
+
+        def exec_(self):
+            return 1
+
+    monkeypatch.setattr(controllers, "DryRunDialog", AutoConfirm)
+
+    # إيقاف بعد نقل 5 ملفات (move_groups تفحص الإلغاء قبل كل ملف)
+    real_move = controllers.move_groups
+
+    def move_then_stop(*args, progress=None, **kwargs):
+        def stopping_progress(done, total):
+            progress(done, total)
+            if done == 5:
+                kwargs["cancel"].cancel()
+        return real_move(*args, progress=stopping_progress, **kwargs)
+
+    monkeypatch.setattr(controllers, "move_groups", move_then_stop)
+    window.move_files()
+    for worker in list(window._workers):
+        _wait_for(worker, app)
+
+    moved_dir = src / "duplicates_sorted" / "folder_1"
+    assert len(os.listdir(moved_dir)) == 5
+    assert window._busy is False                       # لا تعليق على «جاري الإيقاف»
+    restorable = window.history_store.restorable()
+    assert len(restorable) == 1
+    assert len(restorable[0]["operations"]) == 5       # كل ملف منقول قابل للإرجاع
+
+
+def test_move_not_started_when_intent_cannot_be_saved(window, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+
+    import finder.gui.controllers as controllers
+
+    groups = _groups(tmp_path)
+    window.similar_groups = groups
+    window.display_results(groups)
+    window.select_all()
+
+    class AutoConfirm:
+        def __init__(self, *a, **k):
+            self.confirmed = True
+
+        def exec_(self):
+            return 1
+
+    errors = []
+    monkeypatch.setattr(controllers, "DryRunDialog", AutoConfirm)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: errors.append(a))
+
+    def full_disk(*a, **k):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(window.history_store, "begin_intent", full_disk)
+    window.move_files()
+    assert errors, "يجب إظهار رسالة خطأ"
+    assert not window._workers and not window._busy
+    assert all(os.path.exists(f.path) for g in groups for f in g)
+
+
+def test_destructive_dry_run_defaults_to_cancel(app, tmp_path):
+    from finder.gui.dialogs import DryRunDialog
+
+    groups = _groups(tmp_path, count=1, per_group=2)
+    trash = DryRunDialog(groups, "سلة", destructive=True)
+    assert not trash.confirm_btn.isDefault()
+    move = DryRunDialog(groups, "عزل", destructive=False)
+    assert move.confirm_btn.isDefault()
+
+
+def test_single_click_updates_summary_incrementally(app, window, tmp_path):
+    groups = _groups(tmp_path)
+    window.similar_groups = groups
+    window.display_results(groups)
+    child = window.results_tree.topLevelItem(0).child(0)
+    child.setCheckState(0, Qt.Checked)
+    app.processEvents()                     # المؤقت يدمج النقرات في تحديث واحد
+    assert "ملف واحد" in window.selection_summary.text()
+    assert window.move_btn.isEnabled()
+    child.setCheckState(0, Qt.Unchecked)
+    app.processEvents()
+    assert not window.move_btn.isEnabled()
+
+
+def test_log_message_escapes_html(window):
+    window.log_message("<b>not bold</b> & path")
+    assert "<b>not bold</b> & path" in window.log_text.toPlainText()
+
+
+def test_save_log_reports_write_error(window, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+
+    target = tmp_path / "missing-dir" / "log.txt"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), "")
+    )
+    errors = []
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: errors.append(a))
+    window.save_log()                       # لا انهيار من استثناء داخل slot
+    assert errors

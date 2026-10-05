@@ -1,6 +1,14 @@
-import os
-
 import pytest
+
+from finder.core.fileinfo import FileInfo
+
+
+@pytest.fixture(autouse=True)
+def isolated_data_dir(tmp_path_factory, monkeypatch):
+    """كل اختبار يكتب الكاش والسجل في مجلد مؤقت، لا في مجلد المستخدم الحقيقي."""
+    data_dir = tmp_path_factory.mktemp("app-data")
+    monkeypatch.setenv("FILE_FINDER_DATA_DIR", str(data_dir))
+    return data_dir
 
 
 @pytest.fixture
@@ -16,13 +24,5 @@ def make_file(tmp_path):
 
 @pytest.fixture
 def file_info():
-    """بناء dict معلومات ملف من مساره على القرص (بديل موحّد لدوال info المكررة)."""
-    def _info(path: str) -> dict:
-        return {
-            "path": path,
-            "name": os.path.basename(path),
-            "size": os.path.getsize(path),
-            "ext": os.path.splitext(path)[1],
-            "mtime": os.path.getmtime(path),
-        }
-    return _info
+    """بناء FileInfo لملف موجود على القرص."""
+    return FileInfo.from_path

@@ -9,7 +9,7 @@
 
 أمثلة:
     file-finder --scan /data --recursive --mode full --output report.csv
-    file-finder --scan /data --exclude Backups --exclude tmp --json-cache
+    file-finder --scan /data --exclude Backups --exclude tmp --no-cache
 """
 
 from __future__ import annotations

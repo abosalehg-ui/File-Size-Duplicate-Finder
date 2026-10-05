@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import APP_NAME, COPYRIGHT, DEVELOPER, EMAIL, __version__
+from ..core.fileinfo import FileInfo
 from ..core.formats import format_bytes
 from ..ops.history import STATUS_INTERRUPTED, STATUS_PARTIAL
 from . import icons, textfmt, theme
@@ -200,7 +201,7 @@ class DryRunDialog(_BaseDialog):
 
     def __init__(
         self,
-        selected_groups: list[list[dict]],
+        selected_groups: list[list[FileInfo]],
         action_label: str,
         fully_selected_groups: int = 0,
         content_warning: str = "",
@@ -225,7 +226,7 @@ class DryRunDialog(_BaseDialog):
         layout.setSpacing(theme.SPACE_MD)
 
         total_files = sum(len(g) for g in self.selected_groups)
-        total_size = sum(f["size"] for g in self.selected_groups for f in g)
+        total_size = sum(f.size for g in self.selected_groups for f in g)
 
         layout.addWidget(self.header(
             "trash" if destructive else "archive",
@@ -267,7 +268,7 @@ class DryRunDialog(_BaseDialog):
         for idx, group in enumerate(self.selected_groups, 1):
             grp_item = QTreeWidgetItem([
                 f"مجموعة {textfmt.num(idx)} — {textfmt.count_files(len(group))}",
-                textfmt.ltr(format_bytes(sum(f["size"] for f in group))),
+                textfmt.ltr(format_bytes(sum(f.size for f in group))),
                 "", "",
             ])
             grp_item.setIcon(0, icons.icon("layers", self.p.text_muted, theme.ICON_SM))
@@ -276,12 +277,12 @@ class DryRunDialog(_BaseDialog):
                 grp_item.setFont(col, bold)
             for f in group:
                 child = QTreeWidgetItem([
-                    textfmt.ltr(f["name"]),
-                    textfmt.ltr(format_bytes(f["size"])),
-                    textfmt.ltr(f.get("ext", "")) or "بدون",
-                    textfmt.ltr(f["path"]),
+                    textfmt.ltr(f.name),
+                    textfmt.ltr(format_bytes(f.size)),
+                    textfmt.ltr(f.ext) or "بدون",
+                    textfmt.ltr(f.path),
                 ])
-                child.setToolTip(3, f["path"])
+                child.setToolTip(3, f.path)
                 grp_item.addChild(child)
             tree.addTopLevelItem(grp_item)
             grp_item.setExpanded(True)
@@ -320,7 +321,14 @@ class DryRunDialog(_BaseDialog):
             "trash" if destructive else "check",
             self.p.text_inverse, theme.ICON_SM, self.p.disabled_text,
         ))
-        self.confirm_btn.setDefault(True)
+        # في العمليات المدمّرة يكون «إلغاء» هو الافتراضي: ضغطة Enter عابرة
+        # (أو تركيز لوحة المفاتيح على الحوار) لا ترسل الملفات إلى السلة
+        if destructive:
+            self.confirm_btn.setAutoDefault(False)
+            cancel_btn.setDefault(True)
+            cancel_btn.setFocus()
+        else:
+            self.confirm_btn.setDefault(True)
         self.confirm_btn.clicked.connect(self._on_confirm)
         # في واجهة من اليمين لليسار يقع الإجراء الأساسي على حرف البداية (اليمين)
         btn_row.addWidget(self.confirm_btn)

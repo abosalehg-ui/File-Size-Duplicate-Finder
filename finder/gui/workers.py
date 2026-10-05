@@ -3,6 +3,12 @@
 بدل أربعة أصناف QThread متطابقة البنية: صنف واحد يشغّل دالة
 job(progress, cancel) ويبثّ progress/finished/failed. الإلغاء عبر
 CancelToken يصل إلى أعمق حلقات المحرك فيستجيب الإيقاف فوراً.
+
+عقد الإلغاء:
+- إن رمت الـ job الاستثناء OperationCancelled → إشارة `cancelled` (لا نتيجة).
+- إن أرجعت نتيجة → إشارة `finished_ok` **دائماً**، حتى لو طُلب الإيقاف.
+  عمليات النقل والحذف والإرجاع ترجع ما أنجزته قبل الإيقاف (مع cancelled=True
+  في النتيجة)، ورميُ تلك النتيجة يعني نقل ملفات بلا سجل يسمح بإرجاعها.
 """
 
 from __future__ import annotations
@@ -37,10 +43,7 @@ class Worker(QThread):
         except Exception as e:  # noqa: BLE001 - يُعرض للمستخدم في حوار خطأ
             self.failed.emit(str(e))
             return
-        if self.cancel_token.cancelled:
-            self.cancelled.emit()
-        else:
-            self.finished_ok.emit(result)
+        self.finished_ok.emit(result)
 
     def stop(self) -> None:
         self.cancel_token.cancel()

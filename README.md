@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/Python-3.9+-blue.svg" alt="Python">
 <img src="https://img.shields.io/badge/PyQt5-5.15+-green.svg" alt="PyQt5">
 <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform">
-<img src="https://img.shields.io/badge/Version-4.1.1-orange.svg" alt="Version">
+<img src="https://img.shields.io/badge/Version-4.2.0-orange.svg" alt="Version">
 <img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License">
 
 **أداة متقدمة للبحث عن الملفات المكررة وعزلها — كشف بالحجم أو بالـ Hash المتوازي، محرك موحد للواجهة والـ CLI، وواجهة أُعيد تصميمها بنظام تصميم موحّد**
@@ -56,7 +56,7 @@
 | **3 أوضاع كشف** | حجم متقارب (سريع) • Partial hash (متوازن، بداية+نهاية الملف) • SHA-256 كامل (دقيق 100%) |
 | **🆕 محرك موحد** | نفس المحرك (`finder/core`) للواجهة والـ CLI — نتائج متطابقة دائماً |
 | **🆕 تجزئة متوازية** | ThreadPoolExecutor — تسريع 2-4× على SSD/NVMe |
-| **🆕 كاش SQLite** | كتابة ذرّية، مصمم لمئات آلاف الملفات، إبطال تلقائي عند تعديل الملف، ترحيل تلقائي من الكاش القديم |
+| **🆕 كاش SQLite** | كتابة ذرّية، تثبيت دوري (لا يضيع عند الانهيار)، إبطال تلقائي عند تعديل الملف أو تغيّر الخوارزمية، تنظيف دوري لمدخلات الملفات المحذوفة |
 | **بحث متداخل** | مسح المجلدات الفرعية مع تجاهل `.git` و `node_modules` و `venv`... |
 | **خوارزمية O(n log n)** | نافذة منزلقة (sliding window) للتجميع بالحجم |
 | **فلترة بالامتداد** | البحث في ملفات بنفس الامتداد فقط |
@@ -68,11 +68,12 @@
 | **معاينة العملية (Dry-run)** | جدول تفصيلي قبل النقل/الحذف — تأكيد إجباري |
 | **🆕 حارس الاحتفاظ بنسخة** | تحديد كل ملفات مجموعة يتطلب إقراراً صريحاً إضافياً |
 | **🆕 تحديد ذكي** | «الكل عدا الأحدث» / «الكل عدا الأقدم» — تبقى نسخة دائماً |
-| **🆕 سجل نوايا** | العملية تُسجّل قبل التنفيذ — الانقطاع لا يُضيع السجل |
+| **🆕 سجل نوايا + يومية** | الدفعة تُسجَّل قبل التنفيذ، وكل ملف يُسجَّل في يومية قبل نقله — لو انقطع التطبيق أو أُوقفت العملية تبقى كل الملفات المنقولة قابلة للإرجاع |
 | **🆕 استرداد جزئي** | فشل إرجاع بعض الملفات لا يقفل العملية — أعد المحاولة على المتبقي |
 | **🆕 إيقاف فوري** | زر الإيقاف يستجيب خلال أجزاء من الثانية حتى أثناء تجزئة ملف ضخم |
 | **سلة المحذوفات** | إرسال إلى سلة النظام (قابلة للاسترداد) عبر send2trash |
-| **نسخ احتياطية دوّارة** | آخر 10 نسخ من السجل في `~/.history_backup/` |
+| **نسخ احتياطية دوّارة** | آخر 10 نسخ من السجل في مجلد بيانات التطبيق |
+| **🆕 مسح البيانات** | قائمة «البيانات»: مسح كاش البصمات أو سجل العمليات (مع تحذير إن بقيت عمليات قابلة للإرجاع) |
 | **تنبيه للعمليات الكبيرة** | يحذّر عند تجاوز 100 ملف أو 1GB |
 | **معالجة تصادم الأسماء** | إعادة تسمية تلقائية عند وجود ملف بنفس الاسم |
 
@@ -164,10 +165,12 @@ pyinstaller build.spec --clean
 ```bash
 pip install -e ".[dev]"
 ruff check finder tests        # الفحص الثابت
-pytest                         # 80 اختباراً للمحرك والعمليات والـ CLI والواجهة
+pytest                         # 118 اختباراً للمحرك والعمليات والـ CLI والواجهة
 ```
 
-يعمل الفحص والاختبار تلقائياً على كل push عبر GitHub Actions.
+يعمل الفحص والاختبار تلقائياً على كل push عبر GitHub Actions، **بما فيها
+اختبارات الواجهة** (PyQt5 في وضع `offscreen` بلا شاشة). بناء التنفيذيات يثبّت
+تبعياته من `requirements-build.txt` بإصدارات وبصمات مقفلة (`--require-hashes`).
 
 ## 📁 هيكل المشروع
 
@@ -175,6 +178,8 @@ pytest                         # 80 اختباراً للمحرك والعملي
 File-Size-Duplicate-Finder/
 ├── finder/                          # الحزمة الرئيسية
 │   ├── core/                        # المحرك النقي (بلا Qt)
+│   │   ├── fileinfo.py              #   سجل معلومات الملف (FileInfo)
+│   │   ├── paths.py                 #   مجلد بيانات التطبيق + ترحيل الملفات القديمة
 │   │   ├── scan.py                  #   مسح المجلدات
 │   │   ├── grouping.py              #   النافذة المنزلقة
 │   │   ├── hashing.py               #   تجزئة متوازية + إلغاء فوري
@@ -182,9 +187,11 @@ File-Size-Duplicate-Finder/
 │   │   └── reports.py               #   TXT / CSV / JSON
 │   ├── ops/                         # العمليات (بلا Qt)
 │   │   ├── operations.py            #   نقل / سلة / استرجاع
-│   │   └── history.py               #   سجل نوايا + نسخ احتياطية
+│   │   └── history.py               #   سجل نوايا + يومية + نسخ احتياطية
 │   ├── gui/                         # الواجهة الرسومية (PyQt5)
-│   │   ├── main_window.py           #   ترتيب الواجهة والإجراءات
+│   │   ├── main_window.py           #   هيكل النافذة والثيم والإعدادات
+│   │   ├── results_view.py          #   الشجرة والفلترة والتحديد والمعاينة
+│   │   ├── controllers.py           #   البحث / العزل / السلة / الإرجاع
 │   │   ├── theme.py                 #   رموز التصميم + QSS + QPalette
 │   │   ├── icons.py                 #   طقم أيقونات SVG متوافق مع الثيم
 │   │   ├── widgets.py               #   بطاقات ورقائق وحالات فارغة
@@ -197,16 +204,34 @@ File-Size-Duplicate-Finder/
 ├── .github/workflows/               # CI + بناء التنفيذيات
 ├── file_size_duplicate_finder.py    # نقطة دخول متوافقة (GUI)
 ├── file_finder_cli.py               # نقطة دخول متوافقة (CLI)
+├── docs/archive/                    # تقارير مراجعة سابقة (تاريخية)
 ├── build.spec                       # PyInstaller
+├── requirements-build.txt           # تبعيات البناء المقفلة (مع البصمات)
 ├── pyproject.toml
 └── assets/ · screenshots/
 ```
 
 ## 📄 ملفات البيانات
 
-- `~/file_finder_history.json` — سجل العمليات (نسخ احتياطية في `~/.history_backup/`)
-- `~/.file_finder_hash_cache.sqlite3` — كاش الـ hash (يرحّل الكاش القديم `.json` تلقائياً)
-- `QSettings` — الإعدادات (آخر مجلد، الحد، الوضع الداكن...)
+كل بيانات التطبيق في مجلد واحد حسب المنصة:
+
+| المنصة | المجلد |
+|--------|--------|
+| Windows | `%APPDATA%\FileSizeDuplicateFinder\` |
+| macOS | `~/Library/Application Support/FileSizeDuplicateFinder/` |
+| Linux | `$XDG_DATA_HOME/FileSizeDuplicateFinder/` (افتراضياً `~/.local/share/…`) |
+
+يمكن توجيهه لمكان آخر بمتغير البيئة `FILE_FINDER_DATA_DIR`. محتواه:
+
+- `history.json` — سجل العمليات، ونسخه الاحتياطية في `history_backups/`
+- `journal/` — يومية العملية الجارية (تُحذف بعد اكتمالها)
+- `hash_cache.sqlite3` — كاش البصمات
+
+هذه الملفات تحوي **المسارات الكاملة** للملفات المفحوصة والمنقولة؛ امسحها من
+قائمة «البيانات» متى شئت. ملفات الإصدارات السابقة في جذر مجلد المستخدم
+(`~/file_finder_history.json`، `~/.file_finder_hash_cache.sqlite3`،
+`~/.history_backup/`) تُنقل إلى المجلد الجديد تلقائياً عند أول تشغيل.
+الإعدادات (آخر مجلد، الحد، الوضع الداكن…) تبقى في `QSettings`.
 
 ## 🛣️ خارطة الطريق
 
@@ -217,6 +242,7 @@ File-Size-Duplicate-Finder/
 - ~~حارس الاحتفاظ بنسخة + التحديد الذكي~~ (4.0)
 - ~~بناء التنفيذيات تلقائياً عبر GitHub Actions~~ (4.0)
 - ~~إعادة تصميم الواجهة: نظام تصميم موحّد وأيقونات متجهة وترتيب يتبع تدفّق العمل~~ (4.1)
+- ~~يومية لكل ملف، إيقاف آمن للعمليات، اختبارات الواجهة في الـ CI~~ (4.2)
 
 قيد التخطيط:
 - نظام ترجمة كامل (i18n) مع تبديل اللغة من القائمة
@@ -229,7 +255,7 @@ File-Size-Duplicate-Finder/
 
 ## 📖 Overview
 
-**File Size Duplicate Finder** (v4.1) is a PyQt5 desktop app + standalone CLI for finding and isolating duplicate files. One shared engine (`finder/core`) powers both interfaces: three detection modes (size / partial hash / full SHA-256), parallel hashing, an SQLite hash cache built for hundreds of thousands of files, and a full safety net (dry-run preview, keep-one guard, recycle bin, intent-logged operations, partial restore).
+**File Size Duplicate Finder** (v4.2) is a PyQt5 desktop app + standalone CLI for finding and isolating duplicate files. One shared engine (`finder/core`) powers both interfaces: three detection modes (size / partial hash / full SHA-256), parallel hashing, an SQLite hash cache built for hundreds of thousands of files, and a full safety net (dry-run preview, keep-one guard, recycle bin, intent-logged operations, partial restore).
 
 ## ✨ Key Features
 
@@ -238,7 +264,7 @@ File-Size-Duplicate-Finder/
 - 💾 **SQLite hash cache** — atomic, scales to huge folders, auto-invalidates on file change
 - 🧠 **Smart selection**: select all but newest/oldest per group — a copy always survives
 - 🛑 **Keep-one guard**: selecting every file of a group requires explicit acknowledgment
-- 📝 **Intent log**: operations are journaled before execution; interruptions are detected
+- 📝 **Intent log + per-file journal**: every file is journaled before it is moved, so a crash or a Stop mid-operation never leaves moved files without a restore record
 - 🔄 **Partial restore**: failed restores stay retryable for the remaining files
 - 🎨 **Redesigned UI (4.1)**: single design-token system driving both light and dark themes, a consistent vector icon set (no emoji), menu bar with full keyboard coverage, selection-aware action bar, side preview panel, sortable columns with a folder column, described empty states, and correct Arabic pluralisation with bidi isolation
 - 🖱️ Drag & drop, live filter (WYSIWYG operations), image thumbnails, High-DPI, persisted window/layout state
@@ -262,7 +288,9 @@ pip install -e ".[dev]"
 ruff check finder tests && pytest
 ```
 
-CI (lint + 80 tests) runs on every push; tagged releases build executables for Windows/Linux/macOS via GitHub Actions.
+CI (lint + 118 tests, GUI tests included via Qt's offscreen platform) runs on every push; tagged releases build executables for Windows/Linux/macOS from hash-pinned dependencies (`requirements-build.txt`).
+
+App data (history, journal, hash cache) lives in the platform's app-data folder (`%APPDATA%`, `~/Library/Application Support`, or `$XDG_DATA_HOME`), overridable with `FILE_FINDER_DATA_DIR`, and can be cleared from the **Data** menu.
 
 ---
 
